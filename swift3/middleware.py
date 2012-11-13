@@ -56,6 +56,7 @@ from xml.sax.saxutils import escape as xml_escape
 import urlparse
 from xml.dom.minidom import parseString
 
+from webob import Request, Response
 from simplejson import loads
 import email.utils
 import datetime
@@ -64,11 +65,10 @@ import re
 from swift.common.utils import split_path
 from swift.common.utils import get_logger
 from swift.common.wsgi import WSGIContext
-from swift.common.swob import Request, Response
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_NO_CONTENT, HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, \
     HTTP_NOT_FOUND, HTTP_CONFLICT, HTTP_UNPROCESSABLE_ENTITY, is_success, \
-    HTTP_NOT_IMPLEMENTED, HTTP_LENGTH_REQUIRED, HTTP_SERVICE_UNAVAILABLE
+    HTTP_NOT_IMPLEMENTED, HTTP_LENGTH_REQUIRED
 
 
 MAX_BUCKET_LISTING = 1000
@@ -112,12 +112,11 @@ def get_err_response(code):
         (HTTP_NOT_IMPLEMENTED, 'The feature you requested is not yet'
         ' implemented'),
         'MissingContentLength':
-        (HTTP_LENGTH_REQUIRED, 'Length Required'),
-        'ServiceUnavailable':
-        (HTTP_SERVICE_UNAVAILABLE, 'Please reduce your request rate')}
+        (HTTP_LENGTH_REQUIRED, 'Length Required')}
 
     resp = Response(content_type='text/xml')
     resp.status = error_table[code][0]
+    resp.body = error_table[code][1]
     resp.body = '<?xml version="1.0" encoding="UTF-8"?>\r\n<Error>\r\n  ' \
                 '<Code>%s</Code>\r\n  <Message>%s</Message>\r\n</Error>\r\n' \
                 % (code, error_table[code][1])
@@ -264,14 +263,12 @@ def canonical_string(req):
     for k in sorted(key.lower() for key in amz_headers):
         buf += "%s:%s\n" % (k, amz_headers[k])
 
-    path = req.path
-    if req.query_string:
-        path += '?' + req.query_string
+    path = req.path_qs
     if '?' in path:
         path, args = path.split('?', 1)
         for key in urlparse.parse_qs(args, keep_blank_values=True):
             if key in ('acl', 'logging', 'torrent', 'location',
-                       'requestPayment', 'versioning'):
+                       'requestPayment'):
                 return "%s%s?%s" % (buf, path, key)
     return buf + path
 
@@ -399,8 +396,6 @@ class BucketController(WSGIContext):
         self.account_name = unquote(account_name)
         env['HTTP_X_AUTH_TOKEN'] = token
         env['PATH_INFO'] = '/v1/%s/%s' % (account_name, container_name)
-        conf = kwargs.get('conf', {})
-        self.location = conf.get('location', 'US')
 
     def GET(self, env, start_response):
         """
@@ -434,12 +429,6 @@ class BucketController(WSGIContext):
         if 'acl' in args:
             return get_acl(self.account_name, headers)
 
-        if 'versioning' in args:
-            # Just report there is no versioning configured here.
-            body = ('<VersioningConfiguration '
-                'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>')
-            return Response(body=body, content_type="text/plain")
-
         if status != HTTP_OK:
             if status == HTTP_UNAUTHORIZED:
                 return get_err_response('AccessDenied')
@@ -447,23 +436,6 @@ class BucketController(WSGIContext):
                 return get_err_response('NoSuchBucket')
             else:
                 return get_err_response('InvalidURI')
-
-        if 'location' in args:
-            body = ('<?xml version="1.0" encoding="UTF-8"?>'
-                    '<LocationConstraint '
-                    'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"')
-            if self.location == 'US':
-                body += '/>'
-            else:
-                body += ('>%s</LocationConstraint>' % self.location)
-            return Response(body=body, content_type='application/xml')
-
-        if 'logging' in args:
-            # logging disabled
-            body = ('<?xml version="1.0" encoding="UTF-8"?>'
-                    '<BucketLoggingStatus '
-                    'xmlns="http://doc.s3.amazonaws.com/2006-03-01" />')
-            return Response(body=body, content_type='application/xml')
 
         objects = loads(''.join(list(body_iter)))
         body = ('<?xml version="1.0" encoding="UTF-8"?>'
@@ -503,46 +475,42 @@ class BucketController(WSGIContext):
         """
         Handle PUT Bucket request
         """
-        if 'HTTP_X_AMZ_ACL' in env:
-            amz_acl = env['HTTP_X_AMZ_ACL']
-            # Translate the Amazon ACL to something that can be
-            # implemented in Swift, 501 otherwise. Swift uses POST
-            # for ACLs, whereas S3 uses PUT.
-            del env['HTTP_X_AMZ_ACL']
-            if 'QUERY_STRING' in env:
-                del env['QUERY_STRING']
+        for key, value in env.items():
+            if key == "HTTP_X_AMZ_ACL":
+                # Translate the Amazon ACL to something that can be
+                # implemented in Swift, 501 otherwise. Swift uses POST
+                # for ACLs, whereas S3 uses PUT.
+                del env[key]
+                if 'QUERY_STRING' in env:
+                    del env['QUERY_STRING']
 
-            translated_acl = swift_acl_translate(amz_acl)
-            if translated_acl == 'Unsupported':
-                return get_err_response('Unsupported')
-            elif translated_acl == 'InvalidArgument':
-                return get_err_response('InvalidArgument')
-
-            for header, acl in translated_acl:
-                env[header] = acl
-
-        if 'CONTENT_LENGTH' in env:
-            content_length = env['CONTENT_LENGTH']
-            try:
-                content_length = int(content_length)
-            except (ValueError, TypeError):
-                return get_err_response('InvalidArgument')
-            if content_length < 0:
-                return get_err_response('InvalidArgument')
-
-        if 'QUERY_STRING' in env:
-            args = dict(urlparse.parse_qsl(env['QUERY_STRING'], 1))
-            if 'acl' in args:
-                # We very likely have an XML-based ACL request.
-                body = env['wsgi.input'].readline().decode()
-                translated_acl = swift_acl_translate(body, xml=True)
+                translated_acl = swift_acl_translate(value)
                 if translated_acl == 'Unsupported':
                     return get_err_response('Unsupported')
                 elif translated_acl == 'InvalidArgument':
                     return get_err_response('InvalidArgument')
+
                 for header, acl in translated_acl:
                     env[header] = acl
                 env['REQUEST_METHOD'] = 'POST'
+            if key == "CONTENT_LENGTH" and (value.isdigit() is False or
+                                            value < 0):
+                return get_err_response("InvalidArgument")
+            if key == "QUERY_STRING":
+                args = dict(urlparse.parse_qsl(value, 1))
+                if 'acl' in args and 'CONTENT_LENGTH' in env \
+                    and int(env['CONTENT_LENGTH']) > 0 and \
+                        'HTTP_X_AMZ_ACL' not in env:
+                    # We very likely have an XML-based ACL request
+                    body = env['wsgi.input'].readline().decode()
+                    translated_acl = swift_acl_translate(body, xml=True)
+                    if translated_acl == 'Unsupported':
+                        return get_err_response('Unsupported')
+                    elif translated_acl == 'InvalidArgument':
+                        return get_err_response('InvalidArgument')
+                    for header, acl in translated_acl:
+                        env[header] = acl
+                    env['REQUEST_METHOD'] = 'POST'
 
         body_iter = self._app_call(env)
         status = self._get_status_int()
@@ -556,7 +524,7 @@ class BucketController(WSGIContext):
                 return get_err_response('InvalidURI')
 
         resp = Response()
-        resp.headers['Location'] = self.container_name
+        resp.headers.add('Location', self.container_name)
         resp.status = HTTP_OK
         return resp
 
@@ -733,26 +701,19 @@ class Swift3Middleware(object):
         return ServiceController, d
 
     def __call__(self, env, start_response):
-        try:
-            return self.handle_request(env, start_response)
-        except Exception, e:
-            self.logger.exception(e)
-        return get_err_response('ServiceUnavailable')(env, start_response)
-
-    def handle_request(self, env, start_response):
         req = Request(env)
         self.logger.debug('Calling Swift3 Middleware')
         self.logger.debug(req.__dict__)
 
-        if 'AWSAccessKeyId' in req.params:
+        if 'AWSAccessKeyId' in req.GET:
             try:
-                req.headers['Date'] = req.params['Expires']
+                req.headers['Date'] = req.GET['Expires']
                 req.headers['Authorization'] = \
-                    'AWS %(AWSAccessKeyId)s:%(Signature)s' % req.params
+                    'AWS %(AWSAccessKeyId)s:%(Signature)s' % req.GET
             except KeyError:
                 return get_err_response('InvalidArgument')(env, start_response)
 
-        if 'Authorization' not in req.headers:
+        if not 'Authorization' in req.headers:
             return self.app(env, start_response)
 
         try:
@@ -792,8 +753,7 @@ class Swift3Middleware(object):
 
         token = base64.urlsafe_b64encode(canonical_string(req))
 
-        controller = controller(env, self.app, account, token, conf=self.conf,
-                                **path_parts)
+        controller = controller(env, self.app, account, token, **path_parts)
 
         if hasattr(controller, req.method):
             res = getattr(controller, req.method)(env, start_response)
