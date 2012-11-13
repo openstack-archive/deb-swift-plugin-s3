@@ -18,6 +18,7 @@ Homepage: https://github.com/fujita/swift3/
 
 Package: swift-plugin-s3
 Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
 Depends: ${python:Depends}, ${misc:Depends},
  python-simplejson,
  python-swift,

@@ -13,6 +13,9 @@ DEBPKGNAME :=$(shell dpkg-parsechangelog | grep -E ^Source: | cut -d" " -f2)
 override_dh_auto_test:
 	set -e ; for pyversion in $(shell pyversions -r); do $$pyversion setup.py test; done
 
+override_dh_builddeb:
+	dh_builddeb -- -Zxz -z9
+
 get-vcs-source:
 	git remote add upstream git://github.com/fujita/swift3.git || true
 	git fetch upstream
