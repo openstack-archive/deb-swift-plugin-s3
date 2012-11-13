@@ -1,5 +1,5 @@
 swift-plugin-s3 (0.0.20121030-1) experimental; urgency=low
 
-  * Initial release (Closes: #.
+  * Initial release (Closes: #693137).
 
- -- Chuck Short <zulcss@ubuntu.com>  Mon, 18 Jun 2012 10:30:29 -0400
+ -- Thomas Goirand <zigo@debian.org>  Tue, 13 Nov 2012 14:05:57 +0000
