@@ -1,4 +1,4 @@
-swift-plugin-s3 (0.0.20121030-1) experimental; urgency=low
+swift-plugin-s3 (0.0.20121016-1) experimental; urgency=low
 
   * Initial release (Closes: #693137).
 
