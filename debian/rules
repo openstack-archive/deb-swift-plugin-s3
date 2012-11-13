@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+
+#export DH_VERBOSE=1
+
+%:
+	dh $@  --with python2
+
+DEBVERS := $(shell dpkg-parsechangelog | sed -n -e 's/^Version: //p')
+VERSION := $(shell echo '$(DEBVERS)' | sed -e 's/^[[:digit:]]*://' -e 's/[~-].*//')
+DEBFLAVOR :=$(shell dpkg-parsechangelog | grep -E ^Distribution: | cut -d" " -f2)
+DEBPKGNAME :=$(shell dpkg-parsechangelog | grep -E ^Source: | cut -d" " -f2)
+
+override_dh_auto_test:
+	set -e ; for pyversion in $(shell pyversions -r); do $$pyversion setup.py test; done
+
+get-vcs-source:
+	git remote add upstream git://github.com/fujita/swift3.git || true
+	git fetch upstream
+	if [ ! -f ../$(DEBPKGNAME)_$(VERSION).orig.tar.xz ] ; then \
+		git archive --prefix=$(DEBPKGNAME)-$(VERSION)/ $(VERSION) | xz >../$(DEBPKGNAME)_$(VERSION).orig.tar.xz ; \
+	fi
+	if ! git checkout master ; then \
+		echo "No upstream branch: checking out" ; \
+		git checkout -b master upstream/master ; \
+	fi
+	git checkout debian/experimental
