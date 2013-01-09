@@ -6,6 +6,8 @@ UPSTREAM_GIT := git://github.com/fujita/swift3.git
 
 include /usr/share/openstack-pkg-tools/pkgos.make
 
+GIT_TAG := v$(shell echo '$(VERSION)' | sed -e 's/~/_/')
+
 %:
 	dh $@  --with python2
 
