@@ -12,7 +12,7 @@ Build-Depends-Indep: openstack-pkg-tools,
                      python-setuptools,
                      python-simplejson,
                      python-webob
-Standards-Version: 3.9.3
+Standards-Version: 3.9.5
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/swift-plugin-s3.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/swift-plugin-s3.git
 Homepage: https://github.com/fujita/swift3/

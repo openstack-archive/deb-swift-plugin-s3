@@ -4,8 +4,9 @@ swift-plugin-s3 (1.7-3) unstable; urgency=medium
   * Added upstream patches cherry-pick from github (Closes: #737639):
     - fix_signature_bug_to_use_RAW_PATH_INFO.patch
     - Updated_HEAD_and_ACL_calls_to_objects_to_work_correctly.patch
+  * Standards-Version: is now 3.9.5.
 
- -- Thomas Goirand <zigo@debian.org>  Thu, 30 May 2013 15:53:52 +0800
+ -- Thomas Goirand <zigo@debian.org>  Tue, 04 Feb 2014 15:10:16 +0000
 
 swift-plugin-s3 (1.7-2) unstable; urgency=low
 
