@@ -1,6 +1,9 @@
-swift-plugin-s3 (1.7-3) UNRELEASED; urgency=low
+swift-plugin-s3 (1.7-3) unstable; urgency=medium
 
   * Ran wrap-and-sort.
+  * Added upstream patches cherry-pick from github (Closes: #737639):
+    - fix_signature_bug_to_use_RAW_PATH_INFO.patch
+    - Updated_HEAD_and_ACL_calls_to_objects_to_work_correctly.patch
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 30 May 2013 15:53:52 +0800
 

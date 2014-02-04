@@ -1,0 +1,46 @@
+From b8b5998e0a9fad4e63dc8db2085e8bfbc387dec4 Mon Sep 17 00:00:00 2001
+From: Kota Tsuyuzaki <tsuyuzaki.kota@lab.ntt.co.jp>
+Date: Tue, 26 Feb 2013 20:57:32 -0800
+Subject: [PATCH] fix signature bug to use RAW_PATH_INFO
+
+This fixes signature creation to use RAW_PATH_INFO.
+
+Swift3 could not create correct signature in case of
+using escaped character(e.g. %2F, %2D) in PATH_INFO,
+because env['PATH_INFO'] was decoded(unescaped) by
+eventlet.wsgi before a request arrived at swift3.
+It caused signature mismatch and authentication failure.
+
+This change enables swift3 to create signature from
+RAW_PATH_INFO and fixes that bug.
+
+Note: This patch works well only in later version than
+      eventlet 0.9.17, because older version does not
+      have RAW_PATH_INFO variable.
+      When using older version, swift3 works in the same
+      way as ever(use req.path of swob).
+
+Signed-off-by: Kota Tsuyuzaki <tsuyuzaki.kota@lab.ntt.co.jp>
+---
+ swift3/middleware.py | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/swift3/middleware.py b/swift3/middleware.py
+index 87159b3..b009b09 100644
+--- a/swift3/middleware.py
++++ b/swift3/middleware.py
+@@ -266,7 +266,10 @@ def canonical_string(req):
+     for k in sorted(key.lower() for key in amz_headers):
+         buf += "%s:%s\n" % (k, amz_headers[k])
+ 
+-    path = req.path
++    # RAW_PATH_INFO is enabled in later version than eventlet 0.9.17.
++    # When using older version, swift3 uses req.path of swob instead
++    # of it.
++    path = req.environ.get('RAW_PATH_INFO', req.path)
+     if req.query_string:
+         path += '?' + req.query_string
+     if '?' in path:
+-- 
+1.8.5.1
+
