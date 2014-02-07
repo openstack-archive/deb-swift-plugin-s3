@@ -1,6 +1,7 @@
 swift-plugin-s3 (1.7-4) unstable; urgency=low
 
   * Added the packaging of sphinxdoc.
+  * Standards-Version: is now 3.9.5.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 07 Feb 2014 23:37:25 +0800
 
