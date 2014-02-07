@@ -11,6 +11,7 @@ Build-Depends: debhelper (>= 9), python-all (>= 2.6.6-3~)
 Build-Depends-Indep: openstack-pkg-tools,
                      python-setuptools,
                      python-simplejson,
+                     python-sphinx,
                      python-webob
 Standards-Version: 3.9.5
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/swift-plugin-s3.git;a=summary
@@ -24,7 +25,8 @@ Depends: python-simplejson,
          python-swift,
          python-webob,
          ${misc:Depends},
-         ${python:Depends}
+         ${python:Depends},
+         ${sphinxdoc:Depends}
 Description: swift3 (S3 compatibility) middleware plugin for swift
  OpenStack Object Storage (code-named Swift) creates redundant, scalable object
  storage using clusters of standardized servers to store petabytes of

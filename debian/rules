@@ -1,15 +1,16 @@
 #!/usr/bin/make -f
 
-#export DH_VERBOSE=1
-
 UPSTREAM_GIT := git://github.com/fujita/swift3.git
-
 include /usr/share/openstack-pkg-tools/pkgos.make
 
-GIT_TAG := v$(shell echo '$(VERSION)' | sed -e 's/~/_/')
-
 %:
-	dh $@  --with python2
+	dh $@  --with python2,sphinxdoc
 
 override_dh_auto_test:
 	set -e ; for pyversion in $(shell pyversions -r); do $$pyversion setup.py test; done
+
+override_dh_sphinxdoc:
+ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
+	PYTHONPATH=. sphinx-build doc/source $(CURDIR)/debian/swift-plugin-s3/usr/share/doc/swift-plugin-s3/html
+        dh_sphinxdoc -O--buildsystem=python_distutils
+endif
