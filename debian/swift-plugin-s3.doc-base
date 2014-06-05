@@ -1,0 +1,9 @@
+Document: swift-plugin-s3
+Title: swift-plugin-s3 Documentation
+Author: OpenStack
+Abstract: Sphinx documentation for swift-plugin-s3
+Section: Programming/Python
+
+Format: HTML
+Index: /usr/share/doc/swift-plugin-s3/html/index.html
+Files: /usr/share/doc/swift-plugin-s3/html/*
