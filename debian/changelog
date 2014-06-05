@@ -1,6 +1,7 @@
 swift-plugin-s3 (1.7-5) unstable; urgency=medium
 
   * Updated upstream URL in debian/rules,control,copyright.
+  * Fixed spaces instead of tabs in debian/rules line 15 (Closes: #750308).
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 17 May 2014 03:22:58 +0800
 

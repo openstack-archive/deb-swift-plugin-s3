@@ -12,5 +12,5 @@ override_dh_auto_test:
 override_dh_sphinxdoc:
 ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
 	PYTHONPATH=. sphinx-build doc/source $(CURDIR)/debian/swift-plugin-s3/usr/share/doc/swift-plugin-s3/html
-        dh_sphinxdoc -O--buildsystem=python_distutils
+	dh_sphinxdoc -O--buildsystem=python_distutils
 endif
