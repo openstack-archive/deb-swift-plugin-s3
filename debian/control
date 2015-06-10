@@ -20,7 +20,7 @@ Build-Depends-Indep: python-boto,
                      python-openstack.nose-plugin,
                      python-openstackclient,
                      python-swift,
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/swift-plugin-s3.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/swift-plugin-s3.git
 Homepage: https://github.com/fujita/swift3/

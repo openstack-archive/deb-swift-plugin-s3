@@ -4,6 +4,7 @@ swift-plugin-s3 (1.8-1) unstable; urgency=medium
   * Reviewed (build-)depends for this release.
   * Fixed unit tests running (using nose-exclude to not run functional tests).
   * Removed obsolete patches.
+  * Standards-Version is now 3.9.6 (no change).
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 10 Jun 2015 09:28:51 +0200
 
