@@ -1,3 +1,9 @@
+swift-plugin-s3 (1.8-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 10 Jun 2015 09:28:51 +0200
+
 swift-plugin-s3 (1.7-5) unstable; urgency=medium
 
   * Updated upstream URL in debian/rules,control,copyright.
