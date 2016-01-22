@@ -1,3 +1,10 @@
+swift-plugin-s3 (1.9-1) UNRELEASED; urgency=medium
+
+  * New upstream release.
+  * Added myself as uploader.
+
+ -- Ondřej Nový <novy@ondrej.org>  Fri, 22 Jan 2016 16:41:02 -0500
+
 swift-plugin-s3 (1.8-1) unstable; urgency=medium
 
   * New upstream release.
