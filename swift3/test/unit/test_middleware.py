@@ -20,6 +20,7 @@ from datetime import datetime
 import hashlib
 import base64
 from urllib import unquote, quote
+from md5 import md5
 
 from swift.common import swob, utils
 from swift.common.swob import Request
@@ -44,14 +45,16 @@ class TestSwift3Middleware(Swift3TestCase):
 
     def test_bad_format_authorization(self):
         req = Request.blank('/something',
-                            headers={'Authorization': 'hoge'})
+                            headers={'Authorization': 'hoge',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'AccessDenied')
 
     def test_bad_method(self):
         req = Request.blank('/',
                             environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'MethodNotAllowed')
 
@@ -62,7 +65,8 @@ class TestSwift3Middleware(Swift3TestCase):
                             swob.HTTPOk, {}, None)
         req = Request.blank('/%s/%s' % (bucket_name, object_name),
                             environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         raw_path_info = "/%s/%s" % (bucket_name, object_name)
         path_info = req.environ['PATH_INFO']
@@ -80,12 +84,13 @@ class TestSwift3Middleware(Swift3TestCase):
             else:
                 query_string = ''
 
-            req = S3Request({
-                'REQUEST_METHOD': 'GET',
-                'PATH_INFO': path,
-                'QUERY_STRING': query_string,
-                'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
-            })
+            with patch('swift3.request.Request._validate_headers'):
+                req = S3Request({
+                    'REQUEST_METHOD': 'GET',
+                    'PATH_INFO': path,
+                    'QUERY_STRING': query_string,
+                    'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
+                })
             req.headers.update(headers)
             return req._canonical_string()
 
@@ -153,7 +158,8 @@ class TestSwift3Middleware(Swift3TestCase):
         expire = '1000000000'
         req = Request.blank('/bucket/object?Signature=X&Expires=%s&'
                             'AWSAccessKeyId=test:tester' % expire,
-                            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Date': self.get_date_header()})
         req.headers['Date'] = datetime.utcnow()
         req.content_type = 'text/plain'
         status, headers, body = self.call_swift3(req)
@@ -163,7 +169,8 @@ class TestSwift3Middleware(Swift3TestCase):
         expire = '10000000000'
         req = Request.blank('/bucket/object?Signature=X&Expires=%s&'
                             'AWSAccessKeyId=test:tester' % expire,
-                            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Date': self.get_date_header()})
         req.headers['Date'] = datetime.utcnow()
         req.content_type = 'text/plain'
         status, headers, body = self.call_swift3(req)
@@ -176,7 +183,8 @@ class TestSwift3Middleware(Swift3TestCase):
         expire = 'invalid'
         req = Request.blank('/bucket/object?Signature=X&Expires=%s&'
                             'AWSAccessKeyId=test:tester' % expire,
-                            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Date': self.get_date_header()})
         req.headers['Date'] = datetime.utcnow()
         req.content_type = 'text/plain'
         status, headers, body = self.call_swift3(req)
@@ -186,7 +194,8 @@ class TestSwift3Middleware(Swift3TestCase):
         expire = 'invalid'
         req = Request.blank('/bucket/object?Expires=%s&'
                             'AWSAccessKeyId=test:tester' % expire,
-                            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Date': self.get_date_header()})
         req.headers['Date'] = datetime.utcnow()
         req.content_type = 'text/plain'
         status, headers, body = self.call_swift3(req)
@@ -197,7 +206,8 @@ class TestSwift3Middleware(Swift3TestCase):
                             environ={'HTTP_HOST': 'bucket.localhost:80',
                                      'REQUEST_METHOD': 'HEAD',
                                      'HTTP_AUTHORIZATION':
-                                     'AWS test:tester:hmac'})
+                                     'AWS test:tester:hmac'},
+                            headers={'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '200')
 
@@ -206,7 +216,8 @@ class TestSwift3Middleware(Swift3TestCase):
                             environ={'HTTP_HOST': 'bucket.localhost:80',
                                      'REQUEST_METHOD': 'HEAD',
                                      'HTTP_AUTHORIZATION':
-                                     'AWS test:tester:hmac'})
+                                     'AWS test:tester:hmac'},
+                            headers={'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '200')
 
@@ -221,16 +232,20 @@ class TestSwift3Middleware(Swift3TestCase):
                             '&partNumber=1',
                             environ={'REQUEST_METHOD': 'PUT'})
         req.headers['Authorization'] = 'AWS test:tester:hmac'
+        date_header = self.get_date_header()
+        req.headers['Date'] = date_header
         status, headers, body = self.call_swift3(req)
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertEquals(base64.urlsafe_b64decode(
             headers['X-Auth-Token']),
-            'PUT\n\n\n/bucket/object?partNumber=1&uploadId=123456789abcdef')
+            'PUT\n\n\n%s\n/bucket/object?partNumber=1&uploadId=123456789abcdef'
+            % date_header)
 
     def test_invalid_uri(self):
         req = Request.blank('/bucket/invalid\xffname',
                             environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'InvalidURI')
 
@@ -238,7 +253,32 @@ class TestSwift3Middleware(Swift3TestCase):
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'PUT',
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
-                                     'HTTP_CONTENT_MD5': '#'})
+                                     'HTTP_CONTENT_MD5': '#'},
+                            headers={'Date': self.get_date_header()})
+        status, headers, body = self.call_swift3(req)
+        self.assertEquals(self._get_error_code(body), 'InvalidDigest')
+
+    def test_object_create_bad_md5_too_short(self):
+        too_short_digest = md5('hey').hexdigest()[:-1]
+        md5_str = too_short_digest.encode('base64').strip()
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
+                     'HTTP_CONTENT_MD5': md5_str},
+            headers={'Date': self.get_date_header()})
+        status, headers, body = self.call_swift3(req)
+        self.assertEquals(self._get_error_code(body), 'InvalidDigest')
+
+    def test_object_create_bad_md5_too_long(self):
+        too_long_digest = md5('hey').hexdigest() + 'suffix'
+        md5_str = too_long_digest.encode('base64').strip()
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
+                     'HTTP_CONTENT_MD5': md5_str},
+            headers={'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'InvalidDigest')
 
@@ -247,7 +287,8 @@ class TestSwift3Middleware(Swift3TestCase):
                             environ={'REQUEST_METHOD': 'GET',
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
                                      'HTTP_X_AMZ_METADATA_DIRECTIVE':
-                                     'invalid'})
+                                     'invalid'},
+                            headers={'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'InvalidArgument')
 
@@ -255,7 +296,8 @@ class TestSwift3Middleware(Swift3TestCase):
         req = Request.blank('/',
                             environ={'REQUEST_METHOD': 'GET',
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z',
-                                     'HTTP_X_AMZ_STORAGE_CLASS': 'INVALID'})
+                                     'HTTP_X_AMZ_STORAGE_CLASS': 'INVALID'},
+                            headers={'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'InvalidStorageClass')
 
@@ -263,7 +305,8 @@ class TestSwift3Middleware(Swift3TestCase):
         req = Request.blank('/error',
                             environ={'REQUEST_METHOD': 'GET',
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
-                            headers={'x-amz-' + header: 'value'})
+                            headers={'x-amz-' + header: 'value',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'NotImplemented')
 
@@ -279,7 +322,8 @@ class TestSwift3Middleware(Swift3TestCase):
     def _test_unsupported_resource(self, resource):
         req = Request.blank('/error?' + resource,
                             environ={'REQUEST_METHOD': 'GET',
-                                     'HTTP_AUTHORIZATION': 'AWS X:Y:Z'})
+                                     'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
+                            headers={'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(self._get_error_code(body), 'NotImplemented')
 
@@ -310,7 +354,8 @@ class TestSwift3Middleware(Swift3TestCase):
     def test_unsupported_method(self):
         req = Request.blank('/bucket?acl',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         elem = fromstring(body, 'Error')
         self.assertEquals(elem.find('./Code').text, 'MethodNotAllowed')
@@ -350,16 +395,22 @@ class TestSwift3Middleware(Swift3TestCase):
 
             pipeline.return_value = 'swift3 authtoken s3token keystoneauth ' \
                 'proxy-server'
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as cm:
                 self.swift3.check_pipeline(conf)
+            self.assertIn('expected filter s3token before authtoken before '
+                          'keystoneauth', cm.exception.message)
 
             pipeline.return_value = 'swift3 proxy-server'
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as cm:
                 self.swift3.check_pipeline(conf)
+            self.assertIn('expected auth between swift3 and proxy-server',
+                          cm.exception.message)
 
             pipeline.return_value = 'proxy-server'
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as cm:
                 self.swift3.check_pipeline(conf)
+            self.assertIn("missing filters ['swift3']",
+                          cm.exception.message)
 
     def test_swift3_initialization_with_disabled_pipeline_check(self):
         with nested(patch("swift3.middleware.CONF"),

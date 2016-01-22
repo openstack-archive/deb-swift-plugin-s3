@@ -5,6 +5,7 @@
 # more middleware.
 #
 # Keystone pipeline
+# Note that s3token and authtoken require the keystonemiddleware package.
 pipeline = proxy-logging cache swift3 s3token authtoken keystoneauth bulk slo proxy-logging proxy-server
 
 # Tempauth pipeline
@@ -39,6 +40,10 @@ use = egg:swift3#swift3
 # region of the newly created bucket actually.  This value is used only for the
 # GET Bucket location API.
 # location = US
+#
+# Set whether to enforce DNS-compliant bucket names. Note that S3 enforces
+# these conventions in all regions except the US Standard region.
+# dns_compliant_bucket_names = True
 #
 # Set the default maximum number of objects returned in the GET Bucket
 # response.
@@ -81,6 +86,12 @@ use = egg:swift3#swift3
 # Turn auth_pipeline_check off only when you want to bypass these authenticate
 # middlewares in order to use other 3rd party (or your proprietary) authenticate middleware.
 # auth_pipeline_check = True
+#
+# Enable multi-part uploads. (default: true)
+# This is required to store files larger than Swift's max_file_size (by default, 5GiB).
+# Note that has performance implications when deleting objects, as we now have to
+# check for whether there are also segments to delete.
+# allow_multipart_uploads = True
 #
 # Set the maximum number of parts for Upload Part operation.(default: 1000)
 # When setting it to be larger than the default value in order to match the
@@ -130,7 +141,7 @@ use = egg:swift#memcache
 
 [filter:s3token]
 # See swift manual for more details.
-paste.filter_factory = keystone.middleware.s3_token:filter_factory
+paste.filter_factory = keystonemiddleware.s3_token:filter_factory
 auth_host = keystonehost
 auth_port = 35357
 auth_protocol = http
@@ -142,7 +153,7 @@ cache = swift.cache
 
 [filter:authtoken]
 # See swift manual for more details.
-paste.filter_factory = keystoneclient.middleware.auth_token:filter_factory
+paste.filter_factory = keystonemiddleware.auth_token:filter_factory
 auth_host = keystonehost
 auth_port = 35357
 auth_protocol = http

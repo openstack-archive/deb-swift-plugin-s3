@@ -81,6 +81,9 @@ class TestSwift3Bucket(Swift3FunctionalTestCase):
         for o in resp_objects:
             self.assertTrue(o.find('Key').text in req_objects)
             self.assertTrue(o.find('LastModified').text is not None)
+            self.assertRegexpMatches(
+                o.find('LastModified').text,
+                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
             self.assertTrue(o.find('ETag').text is not None)
             self.assertTrue(o.find('Size').text is not None)
             self.assertTrue(o.find('StorageClass').text is not None)
@@ -165,6 +168,9 @@ class TestSwift3Bucket(Swift3FunctionalTestCase):
         for i, o in enumerate(resp_objects):
             self.assertEquals(o.find('Key').text, expect_objects[i])
             self.assertTrue(o.find('LastModified').text is not None)
+            self.assertRegexpMatches(
+                o.find('LastModified').text,
+                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
             self.assertTrue(o.find('ETag').text is not None)
             self.assertTrue(o.find('Size').text is not None)
             self.assertEquals(o.find('StorageClass').text, 'STANDARD')
@@ -208,6 +214,9 @@ class TestSwift3Bucket(Swift3FunctionalTestCase):
         for i, o in enumerate(resp_objects):
             self.assertEquals(o.find('Key').text, expect_objects[i])
             self.assertTrue(o.find('LastModified').text is not None)
+            self.assertRegexpMatches(
+                o.find('LastModified').text,
+                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
             self.assertTrue(o.find('ETag').text is not None)
             self.assertTrue(o.find('Size').text is not None)
             self.assertEquals(o.find('StorageClass').text, 'STANDARD')
@@ -234,6 +243,9 @@ class TestSwift3Bucket(Swift3FunctionalTestCase):
         for i, o in enumerate(resp_objects):
             self.assertEquals(o.find('Key').text, expect_objects[i])
             self.assertTrue(o.find('LastModified').text is not None)
+            self.assertRegexpMatches(
+                o.find('LastModified').text,
+                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
             self.assertTrue(o.find('ETag').text is not None)
             self.assertTrue(o.find('Size').text is not None)
             self.assertEquals(o.find('StorageClass').text, 'STANDARD')
@@ -260,6 +272,9 @@ class TestSwift3Bucket(Swift3FunctionalTestCase):
         for i, o in enumerate(resp_objects):
             self.assertEquals(o.find('Key').text, expect_objects[i])
             self.assertTrue(o.find('LastModified').text is not None)
+            self.assertRegexpMatches(
+                o.find('LastModified').text,
+                r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
             self.assertTrue(o.find('ETag').text is not None)
             self.assertTrue(o.find('Size').text is not None)
             self.assertEquals(o.find('StorageClass').text, 'STANDARD')
@@ -273,14 +288,17 @@ class TestSwift3Bucket(Swift3FunctionalTestCase):
         status, headers, body = \
             self.conn.make_request('HEAD', 'bucket+invalid')
         self.assertEquals(status, 400)
+        self.assertEquals(body, '')  # sanifty
 
         auth_error_conn = Connection(aws_secret_key='invalid')
         status, headers, body = \
             auth_error_conn.make_request('HEAD', 'bucket')
         self.assertEquals(status, 403)
+        self.assertEquals(body, '')  # sanifty
 
         status, headers, body = self.conn.make_request('HEAD', 'nothing')
         self.assertEquals(status, 404)
+        self.assertEquals(body, '')  # sanifty
 
     def test_delete_bucket_error(self):
         status, headers, body = \

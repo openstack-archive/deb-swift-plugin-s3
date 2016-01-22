@@ -58,7 +58,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         self._assertObjectEtag(self.bucket, obj, etag)
 
         # PUT Object Copy
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         dst_obj = 'dst_obj'
         self.conn.make_request('PUT', dst_bucket)
         headers = {'x-amz-copy-source': '/%s/%s' % (self.bucket, obj)}
@@ -72,10 +72,19 @@ class TestSwift3Object(Swift3FunctionalTestCase):
 
         elem = fromstring(body, 'CopyObjectResult')
         self.assertTrue(elem.find('LastModified').text is not None)
-        # TODO: assert LastModified value
+        last_modified_xml = elem.find('LastModified').text
         self.assertTrue(elem.find('ETag').text is not None)
         self.assertEquals(etag, elem.find('ETag').text.strip('"'))
         self._assertObjectEtag(dst_bucket, dst_obj, etag)
+
+        # Check timestamp on Copy:
+        status, headers, body = \
+            self.conn.make_request('GET', dst_bucket)
+        self.assertEquals(status, 200)
+        elem = fromstring(body, 'ListBucketResult')
+
+        self.assertEquals(elem.find('Contents').find("LastModified").text,
+                          last_modified_xml)
 
         # GET Object
         status, headers, body = \
@@ -108,15 +117,17 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         status, headers, body = \
             auth_error_conn.make_request('PUT', self.bucket, 'object')
         self.assertEquals(get_error_code(body), 'SignatureDoesNotMatch')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('PUT', 'bucket2', 'object')
         self.assertEquals(get_error_code(body), 'NoSuchBucket')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
     def test_put_object_copy_error(self):
         obj = 'object'
         self.conn.make_request('PUT', self.bucket, obj)
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         self.conn.make_request('PUT', dst_bucket)
         dst_obj = 'dst_object'
 
@@ -125,12 +136,14 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         status, headers, body = \
             auth_error_conn.make_request('PUT', dst_bucket, dst_obj, headers)
         self.assertEquals(get_error_code(body), 'SignatureDoesNotMatch')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         # /src/nothing -> /dst/dst
         headers = {'X-Amz-Copy-Source': '/%s/%s' % (self.bucket, 'nothing')}
         status, headers, body = \
             self.conn.make_request('PUT', dst_bucket, dst_obj, headers)
         self.assertEquals(get_error_code(body), 'NoSuchKey')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         # /nothing/src -> /dst/dst
         headers = {'X-Amz-Copy-Source': '/%s/%s' % ('nothing', obj)}
@@ -144,6 +157,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         status, headers, body = \
             self.conn.make_request('PUT', 'nothing', dst_obj, headers)
         self.assertEquals(get_error_code(body), 'NoSuchBucket')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
     def test_get_object_error(self):
         obj = 'object'
@@ -153,15 +167,18 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         status, headers, body = \
             auth_error_conn.make_request('GET', self.bucket, obj)
         self.assertEquals(get_error_code(body), 'SignatureDoesNotMatch')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('GET', self.bucket, 'invalid')
         self.assertEquals(get_error_code(body), 'NoSuchKey')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         status, headers, body = self.conn.make_request('GET', 'invalid', obj)
         # TODO; requires consideration
         # self.assertEquals(get_error_code(body), 'NoSuchBucket')
         self.assertEquals(get_error_code(body), 'NoSuchKey')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
     def test_head_object_error(self):
         obj = 'object'
@@ -171,14 +188,20 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         status, headers, body = \
             auth_error_conn.make_request('HEAD', self.bucket, obj)
         self.assertEquals(status, 403)
+        self.assertEquals(body, '')  # sanifty
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('HEAD', self.bucket, 'invalid')
         self.assertEquals(status, 404)
+        self.assertEquals(body, '')  # sanifty
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('HEAD', 'invalid', obj)
         self.assertEquals(status, 404)
+        self.assertEquals(body, '')  # sanifty
+        self.assertEquals(headers['content-type'], 'application/xml')
 
     def test_delete_object_error(self):
         obj = 'object'
@@ -188,14 +211,17 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         status, headers, body = \
             auth_error_conn.make_request('DELETE', self.bucket, obj)
         self.assertEquals(get_error_code(body), 'SignatureDoesNotMatch')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('DELETE', self.bucket, 'invalid')
         self.assertEquals(get_error_code(body), 'NoSuchKey')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
         status, headers, body = \
             self.conn.make_request('DELETE', 'invalid', obj)
         self.assertEquals(get_error_code(body), 'NoSuchBucket')
+        self.assertEquals(headers['content-type'], 'application/xml')
 
     def test_put_object_content_encoding(self):
         obj = 'object'
@@ -236,6 +262,34 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
 
+    def test_put_object_conditional_requests(self):
+        obj = 'object'
+        content = 'abcdefghij'
+        headers = {'If-None-Match': '*'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEquals(status, 501)
+
+        headers = {'If-Match': '*'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEquals(status, 501)
+
+        headers = {'If-Modified-Since': 'Sat, 27 Jun 2015 00:00:00 GMT'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEquals(status, 501)
+
+        headers = {'If-Unmodified-Since': 'Sat, 27 Jun 2015 00:00:00 GMT'}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+        self.assertEquals(status, 501)
+
+        # None of the above should actually have created an object
+        status, headers, body = \
+            self.conn.make_request('HEAD', self.bucket, obj, {}, '')
+        self.assertEquals(status, 404)
+
     def test_put_object_expect(self):
         obj = 'object'
         content = 'abcdefghij'
@@ -247,20 +301,46 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
 
-    def test_put_object_metadata(self):
+    def _test_put_object_headers(self, req_headers):
         obj = 'object'
         content = 'abcdefghij'
         etag = md5(content).hexdigest()
-        headers = {'X-Amz-Meta-Bar': 'foo', 'X-Amz-Meta-Bar2': 'foo2'}
         status, headers, body = \
-            self.conn.make_request('PUT', self.bucket, obj, headers, content)
+            self.conn.make_request('PUT', self.bucket, obj,
+                                   req_headers, content)
         self.assertEquals(status, 200)
         status, headers, body = \
             self.conn.make_request('HEAD', self.bucket, obj)
-        self.assertEquals(headers['x-amz-meta-bar'], 'foo')
-        self.assertEquals(headers['x-amz-meta-bar2'], 'foo2')
+        for header, value in req_headers.items():
+            self.assertIn(header.lower(), headers)
+            self.assertEquals(headers[header.lower()], value)
         self.assertCommonResponseHeaders(headers)
         self._assertObjectEtag(self.bucket, obj, etag)
+
+    def test_put_object_metadata(self):
+        self._test_put_object_headers({
+            'X-Amz-Meta-Bar': 'foo',
+            'X-Amz-Meta-Bar2': 'foo2'})
+
+    def test_put_object_content_headers(self):
+        self._test_put_object_headers({
+            'Content-Type': 'foo/bar',
+            'Content-Encoding': 'baz',
+            'Content-Disposition': 'attachment',
+            'Content-Language': 'en'})
+
+    def test_put_object_cache_control(self):
+        self._test_put_object_headers({
+            'Cache-Control': 'private, some-extension'})
+
+    def test_put_object_expires(self):
+        self._test_put_object_headers({
+            # We don't validate that the Expires header is a valid date
+            'Expires': 'a valid HTTP-date timestamp'})
+
+    def test_put_object_robots_tag(self):
+        self._test_put_object_headers({
+            'X-Robots-Tag': 'googlebot: noarchive'})
 
     def test_put_object_storage_class(self):
         obj = 'object'
@@ -279,7 +359,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         etag = md5(content).hexdigest()
         self.conn.make_request('PUT', self.bucket, obj, body=content)
 
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
         self.conn.make_request('PUT', dst_bucket)
 
@@ -313,7 +393,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
     def test_put_object_copy_metadata_directive(self):
         obj = 'object'
         src_headers = {'X-Amz-Meta-Test': 'src'}
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
         self.conn.make_request('PUT', self.bucket, obj, headers=src_headers)
         self.conn.make_request('PUT', dst_bucket)
@@ -331,7 +411,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
 
     def test_put_object_copy_source_if_modified_since(self):
         obj = 'object'
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
         etag = md5().hexdigest()
         self.conn.make_request('PUT', self.bucket, obj)
@@ -351,7 +431,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
 
     def test_put_object_copy_source_if_unmodified_since(self):
         obj = 'object'
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
         etag = md5().hexdigest()
         self.conn.make_request('PUT', self.bucket, obj)
@@ -371,7 +451,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
 
     def test_put_object_copy_source_if_match(self):
         obj = 'object'
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
         etag = md5().hexdigest()
         self.conn.make_request('PUT', self.bucket, obj)
@@ -390,7 +470,7 @@ class TestSwift3Object(Swift3FunctionalTestCase):
 
     def test_put_object_copy_source_if_none_match(self):
         obj = 'object'
-        dst_bucket = 'dst_bucket'
+        dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
         etag = md5().hexdigest()
         self.conn.make_request('PUT', self.bucket, obj)

@@ -44,6 +44,8 @@ upload information:
 
 import os
 import re
+import sys
+import datetime
 
 from swift.common.utils import json
 from swift.common.db import utf8encode
@@ -119,12 +121,19 @@ class PartController(Controller):
         req.object_name = '%s/%s/%d' % (req.object_name, upload_id,
                                         part_number)
 
-        last_modified = req.check_copy_source(self.app)
+        req.check_copy_source(self.app)
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
+            obj_timestamp = (datetime.datetime.fromtimestamp(
+                float(resp.environ['HTTP_X_TIMESTAMP']))
+                .isoformat())
+            if len(obj_timestamp) is 19:
+                obj_timestamp += '.000Z'
+            else:
+                obj_timestamp = obj_timestamp[:-3] + 'Z'
             resp.append_copy_resp_body(req.controller_name,
-                                       last_modified)
+                                       obj_timestamp)
 
         resp.status = 200
         return resp
@@ -470,6 +479,8 @@ class UploadController(Controller):
             _key = key.lower()
             if _key.startswith('x-amz-meta-'):
                 headers['x-object-meta-' + _key[11:]] = val
+            elif _key == 'content-type':
+                headers['Content-Type'] = val
 
         # Query for the objects in the segments area to make sure it completed
         query = {
@@ -515,8 +526,9 @@ class UploadController(Controller):
         except ErrorResponse:
             raise
         except Exception as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
             LOGGER.error(e)
-            raise
+            raise exc_type, exc_value, exc_traceback
 
         try:
             # TODO: add support for versioning

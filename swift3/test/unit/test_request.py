@@ -17,6 +17,7 @@ from contextlib import nested
 from mock import patch, MagicMock
 import unittest
 
+from swift.common import swob
 from swift.common.swob import Request, HTTPNoContent
 
 from swift3.subresource import ACL, User, Owner, Grant, encode_acl
@@ -93,11 +94,12 @@ class TestRequest(Swift3TestCase):
     @patch('swift3.request.S3AclRequest.authenticate', lambda x, y: None)
     def _test_get_response(self, method, container='bucket', obj=None,
                            permission=None, skip_check=False,
-                           req_klass=S3_Request):
+                           req_klass=S3_Request, fake_swift_resp=None):
         path = '/' + container + ('/' + obj if obj else '')
         req = Request.blank(path,
                             environ={'REQUEST_METHOD': method},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         if issubclass(req_klass, S3AclRequest):
             s3_req = req_klass(req.environ, MagicMock())
         else:
@@ -105,7 +107,8 @@ class TestRequest(Swift3TestCase):
         with nested(patch('swift3.request.Request._get_response'),
                     patch('swift3.subresource.ACL.check_permission')) \
                 as (mock_get_resp, m_check_permission):
-            mock_get_resp.return_value = FakeResponse(CONF.s3_acl)
+            mock_get_resp.return_value = fake_swift_resp \
+                or FakeResponse(CONF.s3_acl)
             return mock_get_resp, m_check_permission,\
                 s3_req.get_response(self.swift3)
 
@@ -176,7 +179,8 @@ class TestRequest(Swift3TestCase):
             req = Request.blank(
                 '/bucket?%s=%s' % (param, value),
                 environ={'REQUEST_METHOD': 'GET'},
-                headers={'Authorization': 'AWS test:tester:hmac'})
+                headers={'Authorization': 'AWS test:tester:hmac',
+                         'Date': self.get_date_header()})
             return S3_Request(req.environ, True)
 
         s3req = create_s3request_with_param('max-keys', '1')
@@ -194,6 +198,8 @@ class TestRequest(Swift3TestCase):
             s3req.get_validated_param('max-keys', 1)
         self.assertTrue(
             'not an integer or within integer range' in result.exception.body)
+        self.assertEquals(
+            result.exception.headers['content-type'], 'application/xml')
 
         # a param is negative integer
         s3req = create_s3request_with_param('max-keys', '-1')
@@ -201,6 +207,8 @@ class TestRequest(Swift3TestCase):
             s3req.get_validated_param('max-keys', 1)
         self.assertTrue(
             'must be an integer between 0 and' in result.exception.body)
+        self.assertEquals(
+            result.exception.headers['content-type'], 'application/xml')
 
         # a param is not integer
         s3req = create_s3request_with_param('max-keys', 'invalid')
@@ -208,11 +216,14 @@ class TestRequest(Swift3TestCase):
             s3req.get_validated_param('max-keys', 1)
         self.assertTrue(
             'not an integer or within integer range' in result.exception.body)
+        self.assertEquals(
+            result.exception.headers['content-type'], 'application/xml')
 
     def test_authenticate_delete_Authorization_from_s3req_headers(self):
         req = Request.blank('/bucket/obj',
                             environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         with nested(patch.object(Request, 'get_response'),
                     patch.object(Request, 'remote_user', 'authorized')) \
                 as (m_swift_resp, m_remote_user):
@@ -229,7 +240,8 @@ class TestRequest(Swift3TestCase):
         method = 'GET'
         req = Request.blank('/%s/%s' % (container, obj),
                             environ={'REQUEST_METHOD': method},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         with nested(patch.object(Request, 'get_response'),
                     patch.object(Request, 'remote_user', 'authorized')) \
                 as (m_swift_resp, m_remote_user):
@@ -250,7 +262,8 @@ class TestRequest(Swift3TestCase):
         req = Request.blank('/%s/%s' % (container, obj),
                             environ={'REQUEST_METHOD': method,
                                      'swift.proxy_access_log_made': True},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         with nested(patch.object(Request, 'get_response'),
                     patch.object(Request, 'remote_user', 'authorized'),
                     patch('swift3.cfg.CONF.force_swift_request_proxy_log',
@@ -266,7 +279,8 @@ class TestRequest(Swift3TestCase):
         req = Request.blank('/%s/%s' % (container, obj),
                             environ={'REQUEST_METHOD': method,
                                      'swift.proxy_access_log_made': True},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         with nested(patch.object(Request, 'get_response'),
                     patch.object(Request, 'remote_user', 'authorized')) \
                 as (m_swift_resp, m_remote_user):
@@ -282,7 +296,8 @@ class TestRequest(Swift3TestCase):
                              'X-container-object-count': 5,
                              'X-container-meta-foo': 'bar'}, None)
         req = Request.blank('/bucket', environ={'REQUEST_METHOD': 'GET'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         s3_req = S3_Request(req.environ, True)
         # first, call get_response('HEAD')
         info = s3_req.get_container_info(self.app)
@@ -307,6 +322,54 @@ class TestRequest(Swift3TestCase):
                 self.assertRaises(
                     expected_error, s3_req.get_container_info, MagicMock())
 
+    def test_date_header_missing(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
+                            {}, None)
+        req = Request.blank('/nojunk',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'Authorization': 'AWS test:tester:hmac'})
+        status, headers, body = self.call_swift3(req)
+        self.assertEquals(status.split()[0], '403')
+        self.assertEquals(body, '')
+
+    def test_date_header_expired(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
+                            {}, None)
+        req = Request.blank('/nojunk',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': 'Fri, 01 Apr 2014 12:00:00 GMT'})
+
+        status, headers, body = self.call_swift3(req)
+        self.assertEquals(status.split()[0], '403')
+        self.assertEquals(body, '')
+
+    def test_date_header_with_x_amz_date_valid(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
+                            {}, None)
+        req = Request.blank('/nojunk',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': 'Fri, 01 Apr 2014 12:00:00 GMT',
+                                     'x-amz-date': self.get_date_header()})
+
+        status, headers, body = self.call_swift3(req)
+        self.assertEquals(status.split()[0], '404')
+        self.assertEquals(body, '')
+
+    def test_date_header_with_x_amz_date_expired(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
+                            {}, None)
+        req = Request.blank('/nojunk',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'x-amz-date':
+                                     'Fri, 01 Apr 2014 12:00:00 GMT'})
+
+        status, headers, body = self.call_swift3(req)
+        self.assertEquals(status.split()[0], '403')
+        self.assertEquals(body, '')
 
 if __name__ == '__main__':
     unittest.main()

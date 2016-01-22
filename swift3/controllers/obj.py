@@ -13,7 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT
+import sys
+import datetime
+
+from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT
 from swift.common.swob import Range, content_range_header_value
 
 from swift3.controllers.base import Controller
@@ -93,12 +96,24 @@ class ObjectController(Controller):
         """
         Handle PUT Object and PUT Object (Copy) request
         """
-        last_modified = req.check_copy_source(self.app)
+        req.check_copy_source(self.app)
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
+            obj_timestamp = (datetime.datetime.fromtimestamp(
+                float(resp.environ['HTTP_X_TIMESTAMP']))
+                .isoformat())
+            if len(obj_timestamp) is 19:
+                obj_timestamp += '.000Z'
+            else:
+                obj_timestamp = obj_timestamp[:-3] + 'Z'
             resp.append_copy_resp_body(req.controller_name,
-                                       last_modified)
+                                       obj_timestamp)
+
+            # delete object metadata from response
+            for key in list(resp.headers.keys()):
+                if key.startswith('x-amz-meta-'):
+                    del resp.headers[key]
 
         resp.status = HTTP_OK
         return resp
@@ -111,9 +126,16 @@ class ObjectController(Controller):
         Handle DELETE Object request
         """
         try:
-            resp = req.get_response(self.app)
+            query = req.gen_multipart_manifest_delete_query(self.app)
+            resp = req.get_response(self.app, query=query)
+            if query and resp.status_int == HTTP_OK:
+                for chunk in resp.app_iter:
+                    pass  # drain the bulk-deleter response
+                resp.status = HTTP_NO_CONTENT
+                resp.body = ''
         except NoSuchKey:
             # expect to raise NoSuchBucket when the bucket doesn't exist
+            exc_type, exc_value, exc_traceback = sys.exc_info()
             req.get_container_info(self.app)
-            raise
+            raise exc_type, exc_value, exc_traceback
         return resp

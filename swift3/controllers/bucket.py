@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+
 from swift.common.http import HTTP_OK
 from swift.common.utils import json
 
@@ -103,8 +105,8 @@ class BucketController(Controller):
                 contents = SubElement(elem, 'Contents')
                 SubElement(contents, 'Key').text = o['name']
                 SubElement(contents, 'LastModified').text = \
-                    o['last_modified'] + 'Z'
-                SubElement(contents, 'ETag').text = o['hash']
+                    o['last_modified'][:-3] + 'Z'
+                SubElement(contents, 'ETag').text = '"%s"' % o['hash']
                 SubElement(contents, 'Size').text = str(o['bytes'])
                 owner = SubElement(contents, 'Owner')
                 SubElement(owner, 'ID').text = req.user_id
@@ -133,8 +135,9 @@ class BucketController(Controller):
             except (XMLSyntaxError, DocumentInvalid):
                 raise MalformedXML()
             except Exception as e:
+                exc_type, exc_value, exc_traceback = sys.exc_info()
                 LOGGER.error(e)
-                raise
+                raise exc_type, exc_value, exc_traceback
 
             if location != CONF.location:
                 # Swift3 cannot support multiple reagions now.

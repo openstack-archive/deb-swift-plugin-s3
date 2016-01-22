@@ -60,9 +60,14 @@ class TestSwift3Obj(Swift3TestCase):
 
         self.response_headers = {'Content-Type': 'text/html',
                                  'Content-Length': len(self.object_body),
+                                 'Content-Disposition': 'inline',
+                                 'Content-Language': 'en',
                                  'x-object-meta-test': 'swift',
                                  'etag': self.etag,
-                                 'last-modified': self.last_modified}
+                                 'last-modified': self.last_modified,
+                                 'expires': 'Mon, 21 Sep 2015 12:00:00 GMT',
+                                 'x-robots-tag': 'nofollow',
+                                 'cache-control': 'private'}
 
         self.swift.register('GET', '/v1/AUTH_test/bucket/object',
                             swob.HTTPOk, self.response_headers,
@@ -70,25 +75,38 @@ class TestSwift3Obj(Swift3TestCase):
         self.swift.register('PUT', '/v1/AUTH_test/bucket/object',
                             swob.HTTPCreated,
                             {'etag': self.etag,
-                             'last-modified': self.last_modified},
+                             'last-modified': self.last_modified,
+                             'x-object-meta-something': 'oh hai'},
                             None)
 
     def _test_object_GETorHEAD(self, method):
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': method},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '200')
 
+        unexpected_headers = []
         for key, val in self.response_headers.iteritems():
-            if key in ('content-length', 'content-type', 'content-encoding',
-                       'last-modified'):
-                self.assertTrue(key in headers)
-                self.assertEquals(headers[key], val)
+            if key in ('Content-Length', 'Content-Type', 'content-encoding',
+                       'last-modified', 'cache-control', 'Content-Disposition',
+                       'Content-Language', 'expires', 'x-robots-tag'):
+                self.assertIn(key, headers)
+                self.assertEquals(headers[key], str(val))
+
+            elif key == 'etag':
+                self.assertEquals(headers[key], '"%s"' % val)
 
             elif key.startswith('x-object-meta-'):
-                self.assertTrue('x-amz-meta-' + key[14:] in headers)
+                self.assertIn('x-amz-meta-' + key[14:], headers)
                 self.assertEquals(headers['x-amz-meta-' + key[14:]], val)
+
+            else:
+                unexpected_headers.append((key, val))
+
+        if unexpected_headers:
+                self.fail('unexpected headers: %r' % unexpected_headers)
 
         self.assertEquals(headers['etag'],
                           '"%s"' % self.response_headers['etag'])
@@ -103,31 +121,38 @@ class TestSwift3Obj(Swift3TestCase):
         # So, check the response code for error test of HEAD.
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'HEAD'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPUnauthorized, {}, None)
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '403')
+        self.assertEquals(body, '')  # sanifty
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPForbidden, {}, None)
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '403')
+        self.assertEquals(body, '')  # sanifty
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPNotFound, {}, None)
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '404')
+        self.assertEquals(body, '')  # sanifty
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPPreconditionFailed, {}, None)
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '412')
+        self.assertEquals(body, '')  # sanifty
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPServerError, {}, None)
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '500')
+        self.assertEquals(body, '')  # sanifty
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPServiceUnavailable, {}, None)
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '500')
+        self.assertEquals(body, '')  # sanifty
 
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
@@ -136,7 +161,8 @@ class TestSwift3Obj(Swift3TestCase):
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Range': range_value})
+                                     'Range': range_value,
+                                     'Date': self.get_date_header()})
         return self.call_swift3(req)
 
     @s3acl
@@ -269,7 +295,8 @@ class TestSwift3Obj(Swift3TestCase):
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Range': 'bytes=0-3'})
+                                     'Range': 'bytes=0-3',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '206')
 
@@ -298,7 +325,8 @@ class TestSwift3Obj(Swift3TestCase):
                                         'no-cache',
                                         'attachment',
                                         'gzip')},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '200')
 
@@ -335,10 +363,13 @@ class TestSwift3Obj(Swift3TestCase):
         self.assertEquals(code, 'InternalError')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPUnprocessableEntity)
-        self.assertEquals(code, 'InvalidDigest')
+        self.assertEquals(code, 'BadDigest')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPLengthRequired)
         self.assertEquals(code, 'MissingContentLength')
+        code = self._test_method_error('PUT', '/bucket/object',
+                                       swob.HTTPPreconditionFailed)
+        self.assertEquals(code, 'InternalError')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
         self.assertEquals(code, 'InternalError')
@@ -372,7 +403,8 @@ class TestSwift3Obj(Swift3TestCase):
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'Authorization': 'AWS test:tester:hmac',
                      'x-amz-storage-class': 'STANDARD',
-                     'Content-MD5': content_md5},
+                     'Content-MD5': content_md5,
+                     'Date': self.get_date_header()},
             body=self.object_body)
         req.date = datetime.now()
         req.content_type = 'text/plain'
@@ -398,13 +430,16 @@ class TestSwift3Obj(Swift3TestCase):
                      'X-Amz-Storage-Class': 'STANDARD',
                      'X-Amz-Meta-Something': 'oh hai',
                      'X-Amz-Copy-Source': '/some/source',
-                     'Content-MD5': content_md5})
+                     'Content-MD5': content_md5,
+                     'Date': self.get_date_header()})
         req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_swift3(req)
-        # Check that swift3 dones not return an etag header,
-        # sepcified copy source.
+        # Check that swift3 does not return an etag header,
+        # specified copy source.
         self.assertTrue(headers.get('etag') is None)
+        # Check that swift3 does not return custom metadata in response
+        self.assertTrue(headers.get('x-amz-meta-something') is None)
 
         _, _, headers = self.swift.calls_with_headers[-1]
         # Check that swift3 converts a Content-MD5 header into an etag.
@@ -424,11 +459,13 @@ class TestSwift3Obj(Swift3TestCase):
                             head_resp, head_headers, None)
 
         put_headers = {'Authorization': 'AWS test:tester:hmac',
-                       'X-Amz-Copy-Source': '/some/source'}
+                       'X-Amz-Copy-Source': '/some/source',
+                       'Date': self.get_date_header()}
         put_headers.update(put_header)
 
         req = Request.blank('/bucket/object',
-                            environ={'REQUEST_METHOD': 'PUT'},
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'HTTP_X_TIMESTAMP': '1396353600.000000'},
                             headers=put_headers)
 
         req.date = datetime.now()
@@ -437,12 +474,13 @@ class TestSwift3Obj(Swift3TestCase):
 
     @s3acl
     def test_object_PUT_copy(self):
-        last_modified = '2014-04-01T12:00:00'
+        last_modified = '2014-04-01T12:00:00.000Z'
         status, headers, body = \
             self._test_object_PUT_copy(swob.HTTPOk)
         self.assertEquals(status.split()[0], '200')
         self.assertEquals(headers['Content-Type'], 'application/xml')
         self.assertTrue(headers.get('etag') is None)
+        self.assertTrue(headers.get('x-amz-meta-something') is None)
         elem = fromstring(body, 'CopyObjectResult')
         self.assertEquals(elem.find('LastModified').text, last_modified)
         self.assertEquals(elem.find('ETag').text, '"%s"' % self.etag)
@@ -456,7 +494,8 @@ class TestSwift3Obj(Swift3TestCase):
         etag = '7dfa07a8e59ddbcd1dc84d4c4f82aea1'
         last_modified_since = 'Fri, 01 Apr 2014 12:00:00 GMT'
 
-        header = {'X-Amz-Copy-Source-If-Match': etag}
+        header = {'X-Amz-Copy-Source-If-Match': etag,
+                  'Date': self.get_date_header()}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPPreconditionFailed,
                                        header)
@@ -486,7 +525,8 @@ class TestSwift3Obj(Swift3TestCase):
         last_modified_since = 'Fri, 01 Apr 2014 11:00:00 GMT'
 
         header = {'X-Amz-Copy-Source-If-Match': etag,
-                  'X-Amz-Copy-Source-If-Modified-Since': last_modified_since}
+                  'X-Amz-Copy-Source-If-Modified-Since': last_modified_since,
+                  'Date': self.get_date_header()}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
         self.assertEquals(status.split()[0], '200')
@@ -504,7 +544,8 @@ class TestSwift3Obj(Swift3TestCase):
         last_modified_since = 'Fri, 01 Apr 2014 11:00:00 GMT'
 
         header = {'X-Amz-Copy-Source-If-Match': etag,
-                  'X-Amz-Copy-Source-If-Modified-Since': last_modified_since}
+                  'X-Amz-Copy-Source-If-Modified-Since': last_modified_since,
+                  'Date': self.get_date_header()}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
 
@@ -527,7 +568,8 @@ class TestSwift3Obj(Swift3TestCase):
         last_modified_since = 'Fri, 01 Apr 2014 12:00:00 GMT'
 
         header = {'X-Amz-Copy-Source-If-None-Match': etag,
-                  'X-Amz-Copy-Source-If-Unmodified-Since': last_modified_since}
+                  'X-Amz-Copy-Source-If-Unmodified-Since': last_modified_since,
+                  'Date': self.get_date_header()}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
 
@@ -546,7 +588,8 @@ class TestSwift3Obj(Swift3TestCase):
         last_modified_since = 'Fri, 01 Apr 2014 12:00:00 GMT'
 
         header = {'X-Amz-Copy-Source-If-None-Match': etag,
-                  'X-Amz-Copy-Source-If-Unmodified-Since': last_modified_since}
+                  'X-Amz-Copy-Source-If-Unmodified-Since': last_modified_since,
+                  'Date': self.get_date_header()}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
         self.assertEquals(status.split()[0], '200')
@@ -593,17 +636,72 @@ class TestSwift3Obj(Swift3TestCase):
             self.assertEquals(code, 'NoSuchBucket')
 
     @s3acl
-    def test_object_DELETE(self):
+    @patch('swift3.cfg.CONF.allow_multipart_uploads', False)
+    def test_object_DELETE_no_multipart(self):
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac'})
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
         self.assertEquals(status.split()[0], '204')
+
+        self.assertNotIn(('HEAD', '/v1/AUTH_test/bucket/object'),
+                         self.swift.calls)
+        self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'),
+                      self.swift.calls)
+        _, path = self.swift.calls[-1]
+        self.assertEquals(path.count('?'), 0)
+
+    @s3acl
+    def test_object_DELETE_multipart(self):
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_swift3(req)
+        self.assertEquals(status.split()[0], '204')
+
+        self.assertIn(('HEAD', '/v1/AUTH_test/bucket/object'),
+                      self.swift.calls)
+        self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'),
+                      self.swift.calls)
+        _, path = self.swift.calls[-1]
+        self.assertEquals(path.count('?'), 0)
+
+    @s3acl
+    def test_slo_object_DELETE(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk,
+                            {'x-static-large-object': 'True'},
+                            None)
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk, {}, '<SLO delete results>')
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_swift3(req)
+        self.assertEqual(status.split()[0], '204')
+        self.assertEqual(body, '')
+
+        self.assertIn(('HEAD', '/v1/AUTH_test/bucket/object'),
+                      self.swift.calls)
+        self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'
+                                 '?multipart-manifest=delete'),
+                      self.swift.calls)
+        _, path = self.swift.calls[-1]
+        path, query_string = path.split('?', 1)
+        query = {}
+        for q in query_string.split('&'):
+            key, arg = q.split('=')
+            query[key] = arg
+        self.assertEquals(query['multipart-manifest'], 'delete')
 
     def _test_object_for_s3acl(self, method, account):
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': method},
-                            headers={'Authorization': 'AWS %s:hmac' % account})
+                            headers={'Authorization': 'AWS %s:hmac' % account,
+                                     'Date': self.get_date_header()})
         return self.call_swift3(req)
 
     def _test_set_container_permission(self, account, permission):
@@ -701,9 +799,11 @@ class TestSwift3Obj(Swift3TestCase):
 
         req = Request.blank(
             '/bucket/object',
-            environ={'REQUEST_METHOD': 'PUT'},
+            environ={'REQUEST_METHOD': 'PUT',
+                     'HTTP_X_TIMESTAMP': '1396353600.000000'},
             headers={'Authorization': 'AWS %s:hmac' % account,
-                     'X-Amz-Copy-Source': src_path})
+                     'X-Amz-Copy-Source': src_path,
+                     'Date': self.get_date_header()})
 
         return self.call_swift3(req)
 

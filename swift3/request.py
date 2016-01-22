@@ -43,7 +43,7 @@ from swift3.response import AccessDenied, InvalidArgument, InvalidDigest, \
     BucketAlreadyExists, BucketNotEmpty, EntityTooLarge, \
     InternalError, NoSuchBucket, NoSuchKey, PreconditionFailed, InvalidRange, \
     MissingContentLength, InvalidStorageClass, S3NotImplemented, InvalidURI, \
-    MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName
+    MalformedXML, InvalidRequest, RequestTimeout, InvalidBucketName, BadDigest
 from swift3.exception import NotS3Request, BadSwiftRequest
 from swift3.utils import utf8encode, LOGGER, check_path_header
 from swift3.cfg import CONF
@@ -95,7 +95,7 @@ class Request(swob.Request):
     def __init__(self, env, slo_enabled=True):
         swob.Request.__init__(self, env)
 
-        self.access_key, self.signature = self._parse_authorization()
+        self.access_key = self._parse_authorization()
         self.bucket_in_host = self._parse_host()
         self.container_name, self.object_name = self._parse_uri()
         self._validate_headers()
@@ -167,14 +167,14 @@ class Request(swob.Request):
             raise NotS3Request()
 
         try:
-            access_key, signature = info.rsplit(':', 1)
+            access_key = info.rsplit(':', 1)[0]
         except Exception:
             err_msg = 'AWS authorization header is invalid.  ' \
                 'Expected AwsAccessKeyId:signature'
             raise InvalidArgument('Authorization',
                                   self.headers['Authorization'], err_msg)
 
-        return access_key, signature
+        return access_key
 
     def _validate_headers(self):
         if 'CONTENT_LENGTH' in self.environ:
@@ -186,9 +186,11 @@ class Request(swob.Request):
                 raise InvalidArgument('Content-Length',
                                       self.environ['CONTENT_LENGTH'])
 
-        if 'Date' in self.headers:
+        date_header = self.headers.get('x-amz-date',
+                                       self.headers.get('Date', None))
+        if date_header:
             now = datetime.datetime.utcnow()
-            date = email.utils.parsedate(self.headers['Date'])
+            date = email.utils.parsedate(date_header)
             if 'Expires' in self.params:
                 try:
                     d = email.utils.formatdate(float(self.params['Expires']))
@@ -213,7 +215,11 @@ class Request(swob.Request):
                 if abs(d1 - now) > delta:
                     raise RequestTimeTooSkewed()
             else:
-                raise AccessDenied()
+                raise AccessDenied('AWS authentication requires a valid Date '
+                                   'or x-amz-date header')
+        else:
+            raise AccessDenied('AWS authentication requires a valid Date '
+                               'or x-amz-date header')
 
         if 'Content-MD5' in self.headers:
             value = self.headers['Content-MD5']
@@ -224,6 +230,15 @@ class Request(swob.Request):
                 self.headers['ETag'] = value.decode('base64').encode('hex')
             except Exception:
                 raise InvalidDigest(content_md5=value)
+
+            if len(self.headers['ETag']) != 32:
+                raise InvalidDigest(content_md5=value)
+
+        if self.method == 'PUT' and any(h in self.headers for h in (
+                'If-Match', 'If-None-Match',
+                'If-Modified-Since', 'If-Unmodified-Since')):
+            raise S3NotImplemented(
+                'Conditional object PUTs are not supported.')
 
         if 'X-Amz-Copy-Source' in self.headers:
             try:
@@ -270,9 +285,9 @@ class Request(swob.Request):
         Similar to swob.Request.body, but it checks the content length before
         creating a body string.
         """
-        if self.headers.get('transfer-encoding'):
-            # FIXME: Raise error only when the input body is larger than
-            # 'max_length'.
+        te = self.headers.get('transfer-encoding', '')
+        te = [x.strip() for x in te.split(',') if x.strip()]
+        if te and (len(te) > 1 or te[-1] != 'chunked'):
             raise S3NotImplemented('A header you provided implies '
                                    'functionality that is not implemented',
                                    header='Transfer-Encoding')
@@ -280,7 +295,8 @@ class Request(swob.Request):
         if self.message_length() > max_length:
             raise MalformedXML()
 
-        body = swob.Request.body.fget(self)
+        # Limit the read similar to how SLO handles manifests
+        body = self.body_file.read(max_length)
 
         if check_md5:
             self.check_md5(body)
@@ -294,7 +310,7 @@ class Request(swob.Request):
 
         digest = md5.new(body).digest().encode('base64').strip()
         if self.environ['HTTP_CONTENT_MD5'] != digest:
-            raise InvalidDigest(content_md5=self.environ['HTTP_CONTENT_MD5'])
+            raise BadDigest(content_md5=self.environ['HTTP_CONTENT_MD5'])
 
     def _copy_source_headers(self):
         env = {}
@@ -307,9 +323,6 @@ class Request(swob.Request):
     def check_copy_source(self, app):
         """
         check_copy_source checks the copy source existence
-
-        :return : last modified str if copy-source header exist
-                  otherwise None
         """
         if 'X-Amz-Copy-Source' in self.headers:
             src_path = self.headers['X-Amz-Copy-Source']
@@ -323,9 +336,6 @@ class Request(swob.Request):
                                          headers=headers)
             if src_resp.status_int == 304:  # pylint: disable-msg=E1101
                 raise PreconditionFailed()
-            return src_resp.last_modified.isoformat()[:-6]
-
-        return None
 
     def _canonical_uri(self):
         raw_path_info = self.environ.get('RAW_PATH_INFO', self.path)
@@ -529,6 +539,7 @@ class Request(swob.Request):
                     HTTP_ACCEPTED,
                 ],
                 'DELETE': [
+                    HTTP_OK,
                     HTTP_NO_CONTENT,
                 ],
             }
@@ -580,7 +591,7 @@ class Request(swob.Request):
                 },
                 'PUT': {
                     HTTP_NOT_FOUND: (NoSuchBucket, container),
-                    HTTP_UNPROCESSABLE_ENTITY: InvalidDigest,
+                    HTTP_UNPROCESSABLE_ENTITY: BadDigest,
                     HTTP_REQUEST_ENTITY_TOO_LARGE: EntityTooLarge,
                     HTTP_LENGTH_REQUIRED: MissingContentLength,
                     HTTP_REQUEST_TIMEOUT: RequestTimeout,
@@ -662,7 +673,7 @@ class Request(swob.Request):
     def get_response(self, app, method=None, container=None, obj=None,
                      headers=None, body=None, query=None):
         """
-        get_response is an entry point to be extended for chiled classes.
+        get_response is an entry point to be extended for child classes.
         If additional tasks needed at that time of getting swift response,
         we can override this method. swift3.request.Request need to just call
         _get_response to get pure swift response.
@@ -726,6 +737,13 @@ class Request(swob.Request):
             resp = self.get_response(app, 'HEAD', self.container_name, '')
             return headers_to_container_info(
                 resp.sw_headers, resp.status_int)  # pylint: disable-msg=E1101
+
+    def gen_multipart_manifest_delete_query(self, app):
+        if not CONF.allow_multipart_uploads:
+            return None
+        query = {'multipart-manifest': 'delete'}
+        resp = self.get_response(app, 'HEAD')
+        return query if resp.is_slo else None
 
 
 class S3AclRequest(Request):
