@@ -24,7 +24,7 @@ override_dh_auto_test:
 		NOSE_OPENSTACK_STDOUT=1 \
 		NOSE_WITH_COVERAGE=1 \
 		NOSE_COVER_BRANCHES=1 \
-		nosetests --exclude-dir=swift3/test/functional
+		nosetests -v --exclude-dir=swift3/test/functional
 #	set -e ; for pyversion in $(shell pyversions -r); do $$pyversion setup.py test; done
 
 override_dh_sphinxdoc:
