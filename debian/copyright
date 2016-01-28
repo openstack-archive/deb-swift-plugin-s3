@@ -3,12 +3,13 @@ Upstream-Name: swift3
 Upstream-Contact: FUJITA Tomonori <fujita.tomonori@lab.ntt.co.jp>
 Source: https://github.com/fujita/swift3
 
-Files: debian/*
-Copyright: (c) 2012, Thomas Goirand <zigo@debian.org>
-License: Apache-2
-
 Files: *
 Copyright: 2012 Openstack LLC. (see AUTHORS file)
+License: Apache-2
+
+Files: debian/*
+Copyright: (c) 2012-2016, Thomas Goirand <zigo@debian.org>
+           (c) 2016, Ondřej Nový <novy@ondrej.org>
 License: Apache-2
 
 License: Apache-2
