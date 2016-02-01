@@ -464,13 +464,13 @@ class TestSwift3Obj(Swift3TestCase):
         put_headers.update(put_header)
 
         req = Request.blank('/bucket/object',
-                            environ={'REQUEST_METHOD': 'PUT',
-                                     'HTTP_X_TIMESTAMP': '1396353600.000000'},
+                            environ={'REQUEST_METHOD': 'PUT'},
                             headers=put_headers)
 
         req.date = datetime.now()
         req.content_type = 'text/plain'
-        return self.call_swift3(req)
+        with patch('swift3.utils.time.time', return_value=1396353600.000000):
+            return self.call_swift3(req)
 
     @s3acl
     def test_object_PUT_copy(self):
@@ -679,7 +679,8 @@ class TestSwift3Obj(Swift3TestCase):
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
+                                     'Date': self.get_date_header(),
+                                     'Content-Type': 'foo/bar'})
         status, headers, body = self.call_swift3(req)
         self.assertEqual(status.split()[0], '204')
         self.assertEqual(body, '')
@@ -689,13 +690,14 @@ class TestSwift3Obj(Swift3TestCase):
         self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'
                                  '?multipart-manifest=delete'),
                       self.swift.calls)
-        _, path = self.swift.calls[-1]
+        _, path, headers = self.swift.calls_with_headers[-1]
         path, query_string = path.split('?', 1)
         query = {}
         for q in query_string.split('&'):
             key, arg = q.split('=')
             query[key] = arg
         self.assertEquals(query['multipart-manifest'], 'delete')
+        self.assertNotIn('Content-Type', headers)
 
     def _test_object_for_s3acl(self, method, account):
         req = Request.blank('/bucket/object',
@@ -799,8 +801,7 @@ class TestSwift3Obj(Swift3TestCase):
 
         req = Request.blank(
             '/bucket/object',
-            environ={'REQUEST_METHOD': 'PUT',
-                     'HTTP_X_TIMESTAMP': '1396353600.000000'},
+            environ={'REQUEST_METHOD': 'PUT'},
             headers={'Authorization': 'AWS %s:hmac' % account,
                      'X-Amz-Copy-Source': src_path,
                      'Date': self.get_date_header()})
