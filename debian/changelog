@@ -4,6 +4,7 @@ swift-plugin-s3 (1.10-1) UNRELEASED; urgency=medium
   * Fixed watch file.
   * Changed upstream URLs to Openstack.
   * Changed Vcs URLs to https proto.
+  * Added python-six build dependency.
 
  -- Ondřej Nový <novy@ondrej.org>  Thu, 28 Jan 2016 16:38:34 +0100
 

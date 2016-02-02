@@ -20,6 +20,7 @@ Build-Depends-Indep: python-boto,
                      python-nose-exclude,
                      python-openstack.nose-plugin,
                      python-openstackclient,
+                     python-six (>= 1.9.0),
                      python-swift,
 Standards-Version: 3.9.6
 Vcs-Browser: https://anonscm.debian.org/cgit/openstack/swift-plugin-s3.git/
