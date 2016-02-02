@@ -2,6 +2,7 @@ swift-plugin-s3 (1.10-1) UNRELEASED; urgency=medium
 
   * New upstream release.
   * Fixed watch file.
+  * Changed upstream URLs to Openstack.
 
  -- Ondřej Nový <novy@ondrej.org>  Thu, 28 Jan 2016 16:38:34 +0100
 

@@ -24,7 +24,7 @@ Build-Depends-Indep: python-boto,
 Standards-Version: 3.9.6
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/swift-plugin-s3.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/swift-plugin-s3.git
-Homepage: https://github.com/fujita/swift3/
+Homepage: https://github.com/openstack/swift3/
 
 Package: swift-plugin-s3
 Architecture: all
