@@ -1,6 +1,7 @@
 swift-plugin-s3 (1.10-2) UNRELEASED; urgency=medium
 
   * Standards-Version is 3.9.7 now (no change).
+  * Fixed tests failing on 32-bit arch.
 
  -- Ondřej Nový <novy@ondrej.org>  Fri, 05 Feb 2016 23:35:09 +0100
 
