@@ -1,0 +1,1 @@
+Test-Command: python -c "import swift3; print swift3.version"
