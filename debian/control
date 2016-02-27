@@ -34,7 +34,7 @@ Depends: python-lxml,
          ${misc:Depends},
          ${python:Depends},
          ${sphinxdoc:Depends},
-Description: swift3 (S3 compatibility) middleware plugin for swift
+Description: swift3 (S3 compatibility) middleware plugin for Swift
  OpenStack Object Storage (code-named Swift) creates redundant, scalable object
  storage using clusters of standardized servers to store petabytes of
  accessible data. It is not a file system or real-time data storage system, but
@@ -55,4 +55,4 @@ Description: swift3 (S3 compatibility) middleware plugin for swift
  expensive equipment.
  .
  This package provides the Swift3 Middleware plugin for OpenStack Swift,
- allowing access to OpenStack swift via the Amazon S3 API.
+ allowing access to OpenStack Swift via the Amazon S3 API.
