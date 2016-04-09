@@ -1,3 +1,9 @@
+swift-plugin-s3 (1.10-3) UNRELEASED; urgency=medium
+
+  * Standards-Version is 3.9.8 now (no change)
+
+ -- Ondřej Nový <novy@ondrej.org>  Sat, 09 Apr 2016 19:32:51 +0200
+
 swift-plugin-s3 (1.10-2) unstable; urgency=medium
 
   * Standards-Version is 3.9.7 now (no change).
