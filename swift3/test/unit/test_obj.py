@@ -16,7 +16,9 @@
 import unittest
 from datetime import datetime
 import hashlib
+import os
 from os.path import join
+import time
 from mock import patch
 
 from swift.common import swob
@@ -26,6 +28,7 @@ from swift3.test.unit import Swift3TestCase
 from swift3.test.unit.test_s3_acl import s3acl
 from swift3.subresource import ACL, User, encode_acl, Owner, Grant
 from swift3.etree import fromstring
+from swift3.utils import mktime, S3Timestamp
 from swift3.test.unit.helpers import FakeSwift
 
 
@@ -85,7 +88,7 @@ class TestSwift3Obj(Swift3TestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
         unexpected_headers = []
         for key, val in self.response_headers.iteritems():
@@ -93,14 +96,14 @@ class TestSwift3Obj(Swift3TestCase):
                        'last-modified', 'cache-control', 'Content-Disposition',
                        'Content-Language', 'expires', 'x-robots-tag'):
                 self.assertIn(key, headers)
-                self.assertEquals(headers[key], str(val))
+                self.assertEqual(headers[key], str(val))
 
             elif key == 'etag':
-                self.assertEquals(headers[key], '"%s"' % val)
+                self.assertEqual(headers[key], '"%s"' % val)
 
             elif key.startswith('x-object-meta-'):
                 self.assertIn('x-amz-meta-' + key[14:], headers)
-                self.assertEquals(headers['x-amz-meta-' + key[14:]], val)
+                self.assertEqual(headers['x-amz-meta-' + key[14:]], val)
 
             else:
                 unexpected_headers.append((key, val))
@@ -108,15 +111,15 @@ class TestSwift3Obj(Swift3TestCase):
         if unexpected_headers:
                 self.fail('unexpected headers: %r' % unexpected_headers)
 
-        self.assertEquals(headers['etag'],
-                          '"%s"' % self.response_headers['etag'])
+        self.assertEqual(headers['etag'],
+                         '"%s"' % self.response_headers['etag'])
 
         if method == 'GET':
-            self.assertEquals(body, self.object_body)
+            self.assertEqual(body, self.object_body)
 
     @s3acl
     def test_object_HEAD_error(self):
-        # HEAD does not return the body even an error resonse in the
+        # HEAD does not return the body even an error response in the
         # specifications of the REST API.
         # So, check the response code for error test of HEAD.
         req = Request.blank('/bucket/object',
@@ -126,33 +129,33 @@ class TestSwift3Obj(Swift3TestCase):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPUnauthorized, {}, None)
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '403')
-        self.assertEquals(body, '')  # sanifty
+        self.assertEqual(status.split()[0], '403')
+        self.assertEqual(body, '')  # sanity
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPForbidden, {}, None)
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '403')
-        self.assertEquals(body, '')  # sanifty
+        self.assertEqual(status.split()[0], '403')
+        self.assertEqual(body, '')  # sanity
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPNotFound, {}, None)
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '404')
-        self.assertEquals(body, '')  # sanifty
+        self.assertEqual(status.split()[0], '404')
+        self.assertEqual(body, '')  # sanity
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPPreconditionFailed, {}, None)
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '412')
-        self.assertEquals(body, '')  # sanifty
+        self.assertEqual(status.split()[0], '412')
+        self.assertEqual(body, '')  # sanity
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPServerError, {}, None)
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '500')
-        self.assertEquals(body, '')  # sanifty
+        self.assertEqual(status.split()[0], '500')
+        self.assertEqual(body, '')  # sanity
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPServiceUnavailable, {}, None)
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '500')
-        self.assertEquals(body, '')  # sanifty
+        self.assertEqual(status.split()[0], '500')
+        self.assertEqual(body, '')  # sanity
 
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
@@ -169,42 +172,42 @@ class TestSwift3Obj(Swift3TestCase):
     def test_object_HEAD_Range_with_invalid_value(self):
         range_value = ''
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('content-range' not in headers)
 
         range_value = 'hoge'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('content-range' not in headers)
 
         range_value = 'bytes='
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('content-range' not in headers)
 
         range_value = 'bytes=1'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('content-range' not in headers)
 
         range_value = 'bytes=5-1'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '5')
         self.assertTrue('content-range' not in headers)
 
         range_value = 'bytes=5-10'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '416')
+        self.assertEqual(status.split()[0], '416')
 
     @s3acl
     def test_object_HEAD_Range(self):
@@ -214,7 +217,7 @@ class TestSwift3Obj(Swift3TestCase):
                             self.object_body)
         range_value = 'bytes=0-3'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '206')
+        self.assertEqual(status.split()[0], '206')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '4')
         self.assertTrue('content-range' in headers)
@@ -224,7 +227,7 @@ class TestSwift3Obj(Swift3TestCase):
 
         range_value = 'bytes=3-3'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '206')
+        self.assertEqual(status.split()[0], '206')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '1')
         self.assertTrue('content-range' in headers)
@@ -234,7 +237,7 @@ class TestSwift3Obj(Swift3TestCase):
 
         range_value = 'bytes=1-'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '206')
+        self.assertEqual(status.split()[0], '206')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '4')
         self.assertTrue('content-range' in headers)
@@ -244,7 +247,7 @@ class TestSwift3Obj(Swift3TestCase):
 
         range_value = 'bytes=-3'
         status, headers, body = self._test_object_HEAD_Range(range_value)
-        self.assertEquals(status.split()[0], '206')
+        self.assertEqual(status.split()[0], '206')
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], '3')
         self.assertTrue('content-range' in headers)
@@ -256,22 +259,22 @@ class TestSwift3Obj(Swift3TestCase):
     def test_object_GET_error(self):
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPUnauthorized)
-        self.assertEquals(code, 'SignatureDoesNotMatch')
+        self.assertEqual(code, 'SignatureDoesNotMatch')
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPForbidden)
-        self.assertEquals(code, 'AccessDenied')
+        self.assertEqual(code, 'AccessDenied')
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPNotFound)
-        self.assertEquals(code, 'NoSuchKey')
+        self.assertEqual(code, 'NoSuchKey')
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPServerError)
-        self.assertEquals(code, 'InternalError')
+        self.assertEqual(code, 'InternalError')
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPPreconditionFailed)
-        self.assertEquals(code, 'PreconditionFailed')
+        self.assertEqual(code, 'PreconditionFailed')
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
-        self.assertEquals(code, 'InternalError')
+        self.assertEqual(code, 'InternalError')
 
     @s3acl
     def test_object_GET(self):
@@ -286,9 +289,9 @@ class TestSwift3Obj(Swift3TestCase):
 
             self._test_object_GETorHEAD('GET')
             _, _, headers = self.swift.calls_with_headers[-1]
-            self.assertTrue('Authorization' not in headers)
+            self.assertNotIn('Authorization', headers)
             _, _, headers = self.swift.calls_with_headers[0]
-            self.assertTrue('Authorization' not in headers)
+            self.assertNotIn('Authorization', headers)
 
     @s3acl
     def test_object_GET_Range(self):
@@ -298,7 +301,7 @@ class TestSwift3Obj(Swift3TestCase):
                                      'Range': 'bytes=0-3',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '206')
+        self.assertEqual(status.split()[0], '206')
 
         self.assertTrue('content-range' in headers)
         self.assertTrue(headers['content-range'].startswith('bytes 0-3'))
@@ -307,7 +310,7 @@ class TestSwift3Obj(Swift3TestCase):
     def test_object_GET_Range_error(self):
         code = self._test_method_error('GET', '/bucket/object',
                                        swob.HTTPRequestedRangeNotSatisfiable)
-        self.assertEquals(code, 'InvalidRange')
+        self.assertEqual(code, 'InvalidRange')
 
     @s3acl
     def test_object_GET_Response(self):
@@ -328,70 +331,76 @@ class TestSwift3Obj(Swift3TestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
         self.assertTrue('content-type' in headers)
-        self.assertEquals(headers['content-type'], 'text/plain')
+        self.assertEqual(headers['content-type'], 'text/plain')
         self.assertTrue('content-language' in headers)
-        self.assertEquals(headers['content-language'], 'en')
+        self.assertEqual(headers['content-language'], 'en')
         self.assertTrue('expires' in headers)
-        self.assertEquals(headers['expires'], 'Fri, 01 Apr 2014 12:00:00 GMT')
+        self.assertEqual(headers['expires'], 'Fri, 01 Apr 2014 12:00:00 GMT')
         self.assertTrue('cache-control' in headers)
-        self.assertEquals(headers['cache-control'], 'no-cache')
+        self.assertEqual(headers['cache-control'], 'no-cache')
         self.assertTrue('content-disposition' in headers)
-        self.assertEquals(headers['content-disposition'],
-                          'attachment')
+        self.assertEqual(headers['content-disposition'],
+                         'attachment')
         self.assertTrue('content-encoding' in headers)
-        self.assertEquals(headers['content-encoding'], 'gzip')
+        self.assertEqual(headers['content-encoding'], 'gzip')
 
     @s3acl
     def test_object_PUT_error(self):
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPUnauthorized)
-        self.assertEquals(code, 'SignatureDoesNotMatch')
+        self.assertEqual(code, 'SignatureDoesNotMatch')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPForbidden)
-        self.assertEquals(code, 'AccessDenied')
+        self.assertEqual(code, 'AccessDenied')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPNotFound)
-        self.assertEquals(code, 'NoSuchBucket')
+        self.assertEqual(code, 'NoSuchBucket')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPRequestEntityTooLarge)
-        self.assertEquals(code, 'EntityTooLarge')
+        self.assertEqual(code, 'EntityTooLarge')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPServerError)
-        self.assertEquals(code, 'InternalError')
+        self.assertEqual(code, 'InternalError')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPUnprocessableEntity)
-        self.assertEquals(code, 'BadDigest')
+        self.assertEqual(code, 'BadDigest')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPLengthRequired)
-        self.assertEquals(code, 'MissingContentLength')
+        self.assertEqual(code, 'MissingContentLength')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPPreconditionFailed)
-        self.assertEquals(code, 'InternalError')
+        self.assertEqual(code, 'InternalError')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
-        self.assertEquals(code, 'InternalError')
+        self.assertEqual(code, 'InternalError')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPCreated,
                                        {'X-Amz-Copy-Source': ''})
-        self.assertEquals(code, 'InvalidArgument')
+        self.assertEqual(code, 'InvalidArgument')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPCreated,
                                        {'X-Amz-Copy-Source': '/'})
-        self.assertEquals(code, 'InvalidArgument')
+        self.assertEqual(code, 'InvalidArgument')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPCreated,
                                        {'X-Amz-Copy-Source': '/bucket'})
-        self.assertEquals(code, 'InvalidArgument')
+        self.assertEqual(code, 'InvalidArgument')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPCreated,
                                        {'X-Amz-Copy-Source': '/bucket/'})
-        self.assertEquals(code, 'InvalidArgument')
+        self.assertEqual(code, 'InvalidArgument')
+        code = self._test_method_error(
+            'PUT', '/bucket/object',
+            swob.HTTPCreated,
+            {'X-Amz-Copy-Source': '/src_bucket/src_object',
+             'X-Amz-Copy-Source-Range': 'bytes=0-0'})
+        self.assertEqual(code, 'InvalidArgument')
         code = self._test_method_error('PUT', '/bucket/object',
                                        swob.HTTPRequestTimeout)
-        self.assertEquals(code, 'RequestTimeout')
+        self.assertEqual(code, 'RequestTimeout')
 
     @s3acl
     def test_object_PUT(self):
@@ -409,13 +418,13 @@ class TestSwift3Obj(Swift3TestCase):
         req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
         # Check that swift3 returns an etag header.
-        self.assertEquals(headers['etag'], '"%s"' % etag)
+        self.assertEqual(headers['etag'], '"%s"' % etag)
 
         _, _, headers = self.swift.calls_with_headers[-1]
         # Check that swift3 converts a Content-MD5 header into an etag.
-        self.assertEquals(headers['etag'], etag)
+        self.assertEqual(headers['etag'], etag)
 
     def test_object_PUT_headers(self):
         content_md5 = self.etag.decode('hex').encode('base64').strip()
@@ -429,6 +438,9 @@ class TestSwift3Obj(Swift3TestCase):
             headers={'Authorization': 'AWS test:tester:hmac',
                      'X-Amz-Storage-Class': 'STANDARD',
                      'X-Amz-Meta-Something': 'oh hai',
+                     'X-Amz-Meta-Unreadable-Prefix': '\x04w',
+                     'X-Amz-Meta-Unreadable-Suffix': 'h\x04',
+                     'X-Amz-Meta-Lots-Of-Unprintable': 5 * '\x04',
                      'X-Amz-Copy-Source': '/some/source',
                      'Content-MD5': content_md5,
                      'Date': self.get_date_header()})
@@ -443,12 +455,19 @@ class TestSwift3Obj(Swift3TestCase):
 
         _, _, headers = self.swift.calls_with_headers[-1]
         # Check that swift3 converts a Content-MD5 header into an etag.
-        self.assertEquals(headers['ETag'], self.etag)
-        self.assertEquals(headers['X-Object-Meta-Something'], 'oh hai')
-        self.assertEquals(headers['X-Copy-From'], '/some/source')
-        self.assertEquals(headers['Content-Length'], '0')
+        self.assertEqual(headers['ETag'], self.etag)
+        self.assertEqual(headers['X-Object-Meta-Something'], 'oh hai')
+        self.assertEqual(headers['X-Object-Meta-Unreadable-Prefix'],
+                         '=?UTF-8?Q?=04w?=')
+        self.assertEqual(headers['X-Object-Meta-Unreadable-Suffix'],
+                         '=?UTF-8?Q?h=04?=')
+        self.assertEqual(headers['X-Object-Meta-Lots-Of-Unprintable'],
+                         '=?UTF-8?B?BAQEBAQ=?=')
+        self.assertEqual(headers['X-Copy-From'], '/some/source')
+        self.assertEqual(headers['Content-Length'], '0')
 
-    def _test_object_PUT_copy(self, head_resp, put_header={}):
+    def _test_object_PUT_copy(self, head_resp, put_header=None,
+                              src_path='/some/source', timestamp=None):
         account = 'test:tester'
         grants = [Grant(User(account), 'FULL_CONTROL')]
         head_headers = \
@@ -457,9 +476,25 @@ class TestSwift3Obj(Swift3TestCase):
         head_headers.update({'last-modified': self.last_modified})
         self.swift.register('HEAD', '/v1/AUTH_test/some/source',
                             head_resp, head_headers, None)
+        put_header = put_header or {}
+        return self._call_object_copy(src_path, put_header, timestamp)
 
+    def _test_object_PUT_copy_self(self, head_resp,
+                                   put_header=None, timestamp=None):
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = \
+            encode_acl('object',
+                       ACL(Owner(account, account), grants))
+        head_headers.update({'last-modified': self.last_modified})
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            head_resp, head_headers, None)
+        put_header = put_header or {}
+        return self._call_object_copy('/bucket/object', put_header, timestamp)
+
+    def _call_object_copy(self, src_path, put_header, timestamp=None):
         put_headers = {'Authorization': 'AWS test:tester:hmac',
-                       'X-Amz-Copy-Source': '/some/source',
+                       'X-Amz-Copy-Source': src_path,
                        'Date': self.get_date_header()}
         put_headers.update(put_header)
 
@@ -469,25 +504,99 @@ class TestSwift3Obj(Swift3TestCase):
 
         req.date = datetime.now()
         req.content_type = 'text/plain'
-        with patch('swift3.utils.time.time', return_value=1396353600.000000):
+        timestamp = timestamp or time.time()
+        with patch('swift3.utils.time.time', return_value=timestamp):
             return self.call_swift3(req)
 
     @s3acl
     def test_object_PUT_copy(self):
-        last_modified = '2014-04-01T12:00:00.000Z'
-        status, headers, body = \
-            self._test_object_PUT_copy(swob.HTTPOk)
-        self.assertEquals(status.split()[0], '200')
-        self.assertEquals(headers['Content-Type'], 'application/xml')
+        date_header = self.get_date_header()
+        timestamp = mktime(date_header)
+        last_modified = S3Timestamp(timestamp).s3xmlformat
+        status, headers, body = self._test_object_PUT_copy(
+            swob.HTTPOk, put_header={'Date': date_header},
+            timestamp=timestamp)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(headers['Content-Type'], 'application/xml')
+
         self.assertTrue(headers.get('etag') is None)
         self.assertTrue(headers.get('x-amz-meta-something') is None)
         elem = fromstring(body, 'CopyObjectResult')
-        self.assertEquals(elem.find('LastModified').text, last_modified)
-        self.assertEquals(elem.find('ETag').text, '"%s"' % self.etag)
+        self.assertEqual(elem.find('LastModified').text, last_modified)
+        self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
         _, _, headers = self.swift.calls_with_headers[-1]
-        self.assertEquals(headers['X-Copy-From'], '/some/source')
-        self.assertEquals(headers['Content-Length'], '0')
+        self.assertEqual(headers['X-Copy-From'], '/some/source')
+        self.assertEqual(headers['Content-Length'], '0')
+
+    @s3acl
+    def test_object_PUT_copy_no_slash(self):
+        date_header = self.get_date_header()
+        timestamp = mktime(date_header)
+        last_modified = S3Timestamp(timestamp).s3xmlformat
+        # Some clients (like Boto) don't include the leading slash;
+        # AWS seems to tolerate this so we should, too
+        status, headers, body = self._test_object_PUT_copy(
+            swob.HTTPOk, src_path='some/source',
+            put_header={'Date': date_header}, timestamp=timestamp)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(headers['Content-Type'], 'application/xml')
+        self.assertTrue(headers.get('etag') is None)
+        self.assertTrue(headers.get('x-amz-meta-something') is None)
+        elem = fromstring(body, 'CopyObjectResult')
+        self.assertEqual(elem.find('LastModified').text, last_modified)
+        self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
+
+        _, _, headers = self.swift.calls_with_headers[-1]
+        self.assertEqual(headers['X-Copy-From'], '/some/source')
+        self.assertEqual(headers['Content-Length'], '0')
+
+    @s3acl
+    def test_object_PUT_copy_self(self):
+        status, headers, body = \
+            self._test_object_PUT_copy_self(swob.HTTPOk)
+        self.assertEqual(status.split()[0], '400')
+        elem = fromstring(body, 'Error')
+        err_msg = ("This copy request is illegal because it is trying to copy "
+                   "an object to itself without changing the object's "
+                   "metadata, storage class, website redirect location or "
+                   "encryption attributes.")
+        self.assertEqual(elem.find('Code').text, 'InvalidRequest')
+        self.assertEqual(elem.find('Message').text, err_msg)
+
+    @s3acl
+    def test_object_PUT_copy_self_metadata_copy(self):
+        header = {'x-amz-metadata-directive': 'COPY'}
+        status, headers, body = \
+            self._test_object_PUT_copy_self(swob.HTTPOk, header)
+        self.assertEqual(status.split()[0], '400')
+        elem = fromstring(body, 'Error')
+        err_msg = ("This copy request is illegal because it is trying to copy "
+                   "an object to itself without changing the object's "
+                   "metadata, storage class, website redirect location or "
+                   "encryption attributes.")
+        self.assertEqual(elem.find('Code').text, 'InvalidRequest')
+        self.assertEqual(elem.find('Message').text, err_msg)
+
+    @s3acl
+    def test_object_PUT_copy_self_metadata_replace(self):
+        date_header = self.get_date_header()
+        timestamp = mktime(date_header)
+        last_modified = S3Timestamp(timestamp).s3xmlformat
+        header = {'x-amz-metadata-directive': 'REPLACE',
+                  'Date': date_header}
+        status, headers, body = self._test_object_PUT_copy_self(
+            swob.HTTPOk, header, timestamp=timestamp)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(headers['Content-Type'], 'application/xml')
+        self.assertTrue(headers.get('etag') is None)
+        elem = fromstring(body, 'CopyObjectResult')
+        self.assertEqual(elem.find('LastModified').text, last_modified)
+        self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
+
+        _, _, headers = self.swift.calls_with_headers[-1]
+        self.assertEqual(headers['X-Copy-From'], '/bucket/object')
+        self.assertEqual(headers['Content-Length'], '0')
 
     @s3acl
     def test_object_PUT_copy_headers_error(self):
@@ -499,26 +608,26 @@ class TestSwift3Obj(Swift3TestCase):
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPPreconditionFailed,
                                        header)
-        self.assertEquals(self._get_error_code(body), 'PreconditionFailed')
+        self.assertEqual(self._get_error_code(body), 'PreconditionFailed')
 
         header = {'X-Amz-Copy-Source-If-None-Match': etag}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPNotModified,
                                        header)
-        self.assertEquals(self._get_error_code(body), 'PreconditionFailed')
+        self.assertEqual(self._get_error_code(body), 'PreconditionFailed')
 
         header = {'X-Amz-Copy-Source-If-Modified-Since': last_modified_since}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPNotModified,
                                        header)
-        self.assertEquals(self._get_error_code(body), 'PreconditionFailed')
+        self.assertEqual(self._get_error_code(body), 'PreconditionFailed')
 
         header = \
             {'X-Amz-Copy-Source-If-Unmodified-Since': last_modified_since}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPPreconditionFailed,
                                        header)
-        self.assertEquals(self._get_error_code(body), 'PreconditionFailed')
+        self.assertEqual(self._get_error_code(body), 'PreconditionFailed')
 
     def test_object_PUT_copy_headers_with_match(self):
         etag = '7dfa07a8e59ddbcd1dc84d4c4f82aea1'
@@ -529,14 +638,14 @@ class TestSwift3Obj(Swift3TestCase):
                   'Date': self.get_date_header()}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
-        self.assertEquals(status.split()[0], '200')
-        self.assertEquals(len(self.swift.calls_with_headers), 2)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(len(self.swift.calls_with_headers), 2)
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertTrue(headers.get('If-Match') is None)
         self.assertTrue(headers.get('If-Modified-Since') is None)
         _, _, headers = self.swift.calls_with_headers[0]
-        self.assertEquals(headers['If-Match'], etag)
-        self.assertEquals(headers['If-Modified-Since'], last_modified_since)
+        self.assertEqual(headers['If-Match'], etag)
+        self.assertEqual(headers['If-Modified-Since'], last_modified_since)
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_copy_headers_with_match_and_s3acl(self):
@@ -549,8 +658,8 @@ class TestSwift3Obj(Swift3TestCase):
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
 
-        self.assertEquals(status.split()[0], '200')
-        self.assertEquals(len(self.swift.calls_with_headers), 3)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(len(self.swift.calls_with_headers), 3)
         # After the check of the copy source in the case of s3acl is valid,
         # Swift3 check the bucket write permissions of the destination.
         _, _, headers = self.swift.calls_with_headers[-2]
@@ -560,8 +669,8 @@ class TestSwift3Obj(Swift3TestCase):
         self.assertTrue(headers.get('If-Match') is None)
         self.assertTrue(headers.get('If-Modified-Since') is None)
         _, _, headers = self.swift.calls_with_headers[0]
-        self.assertEquals(headers['If-Match'], etag)
-        self.assertEquals(headers['If-Modified-Since'], last_modified_since)
+        self.assertEqual(headers['If-Match'], etag)
+        self.assertEqual(headers['If-Modified-Since'], last_modified_since)
 
     def test_object_PUT_copy_headers_with_not_match(self):
         etag = '7dfa07a8e59ddbcd1dc84d4c4f82aea1'
@@ -573,14 +682,14 @@ class TestSwift3Obj(Swift3TestCase):
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
 
-        self.assertEquals(status.split()[0], '200')
-        self.assertEquals(len(self.swift.calls_with_headers), 2)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(len(self.swift.calls_with_headers), 2)
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertTrue(headers.get('If-None-Match') is None)
         self.assertTrue(headers.get('If-Unmodified-Since') is None)
         _, _, headers = self.swift.calls_with_headers[0]
-        self.assertEquals(headers['If-None-Match'], etag)
-        self.assertEquals(headers['If-Unmodified-Since'], last_modified_since)
+        self.assertEqual(headers['If-None-Match'], etag)
+        self.assertEqual(headers['If-Unmodified-Since'], last_modified_since)
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_copy_headers_with_not_match_and_s3acl(self):
@@ -592,48 +701,48 @@ class TestSwift3Obj(Swift3TestCase):
                   'Date': self.get_date_header()}
         status, header, body = \
             self._test_object_PUT_copy(swob.HTTPOk, header)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
         # After the check of the copy source in the case of s3acl is valid,
         # Swift3 check the bucket write permissions of the destination.
-        self.assertEquals(len(self.swift.calls_with_headers), 3)
+        self.assertEqual(len(self.swift.calls_with_headers), 3)
         _, _, headers = self.swift.calls_with_headers[-1]
         self.assertTrue(headers.get('If-None-Match') is None)
         self.assertTrue(headers.get('If-Unmodified-Since') is None)
         _, _, headers = self.swift.calls_with_headers[0]
-        self.assertEquals(headers['If-None-Match'], etag)
-        self.assertEquals(headers['If-Unmodified-Since'], last_modified_since)
+        self.assertEqual(headers['If-None-Match'], etag)
+        self.assertEqual(headers['If-Unmodified-Since'], last_modified_since)
 
     @s3acl
     def test_object_POST_error(self):
         code = self._test_method_error('POST', '/bucket/object', None)
-        self.assertEquals(code, 'NotImplemented')
+        self.assertEqual(code, 'NotImplemented')
 
     @s3acl
     def test_object_DELETE_error(self):
         code = self._test_method_error('DELETE', '/bucket/object',
                                        swob.HTTPUnauthorized)
-        self.assertEquals(code, 'SignatureDoesNotMatch')
+        self.assertEqual(code, 'SignatureDoesNotMatch')
         code = self._test_method_error('DELETE', '/bucket/object',
                                        swob.HTTPForbidden)
-        self.assertEquals(code, 'AccessDenied')
+        self.assertEqual(code, 'AccessDenied')
         code = self._test_method_error('DELETE', '/bucket/object',
                                        swob.HTTPServerError)
-        self.assertEquals(code, 'InternalError')
+        self.assertEqual(code, 'InternalError')
         code = self._test_method_error('DELETE', '/bucket/object',
                                        swob.HTTPServiceUnavailable)
-        self.assertEquals(code, 'InternalError')
+        self.assertEqual(code, 'InternalError')
 
         with patch('swift3.request.get_container_info',
                    return_value={'status': 204}):
             code = self._test_method_error('DELETE', '/bucket/object',
                                            swob.HTTPNotFound)
-            self.assertEquals(code, 'NoSuchKey')
+            self.assertEqual(code, 'NoSuchKey')
 
         with patch('swift3.request.get_container_info',
                    return_value={'status': 404}):
             code = self._test_method_error('DELETE', '/bucket/object',
                                            swob.HTTPNotFound)
-            self.assertEquals(code, 'NoSuchBucket')
+            self.assertEqual(code, 'NoSuchBucket')
 
     @s3acl
     @patch('swift3.cfg.CONF.allow_multipart_uploads', False)
@@ -643,14 +752,14 @@ class TestSwift3Obj(Swift3TestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '204')
+        self.assertEqual(status.split()[0], '204')
 
         self.assertNotIn(('HEAD', '/v1/AUTH_test/bucket/object'),
                          self.swift.calls)
         self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'),
                       self.swift.calls)
         _, path = self.swift.calls[-1]
-        self.assertEquals(path.count('?'), 0)
+        self.assertEqual(path.count('?'), 0)
 
     @s3acl
     def test_object_DELETE_multipart(self):
@@ -659,14 +768,14 @@ class TestSwift3Obj(Swift3TestCase):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '204')
+        self.assertEqual(status.split()[0], '204')
 
         self.assertIn(('HEAD', '/v1/AUTH_test/bucket/object'),
                       self.swift.calls)
         self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'),
                       self.swift.calls)
         _, path = self.swift.calls[-1]
-        self.assertEquals(path.count('?'), 0)
+        self.assertEqual(path.count('?'), 0)
 
     @s3acl
     def test_slo_object_DELETE(self):
@@ -696,7 +805,7 @@ class TestSwift3Obj(Swift3TestCase):
         for q in query_string.split('&'):
             key, arg = q.split('=')
             query[key] = arg
-        self.assertEquals(query['multipart-manifest'], 'delete')
+        self.assertEqual(query['multipart-manifest'], 'delete')
         self.assertNotIn('Content-Type', headers)
 
     def _test_object_for_s3acl(self, method, account):
@@ -718,38 +827,38 @@ class TestSwift3Obj(Swift3TestCase):
     def test_object_GET_without_permission(self):
         status, headers, body = self._test_object_for_s3acl('GET',
                                                             'test:other')
-        self.assertEquals(self._get_error_code(body), 'AccessDenied')
+        self.assertEqual(self._get_error_code(body), 'AccessDenied')
 
     @s3acl(s3acl_only=True)
     def test_object_GET_with_read_permission(self):
         status, headers, body = self._test_object_for_s3acl('GET',
                                                             'test:read')
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_GET_with_fullcontrol_permission(self):
         status, headers, body = \
             self._test_object_for_s3acl('GET', 'test:full_control')
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_without_permission(self):
         status, headers, body = self._test_object_for_s3acl('PUT',
                                                             'test:other')
-        self.assertEquals(self._get_error_code(body), 'AccessDenied')
+        self.assertEqual(self._get_error_code(body), 'AccessDenied')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_with_owner_permission(self):
         status, headers, body = self._test_object_for_s3acl('PUT',
                                                             'test:tester')
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_with_write_permission(self):
         account = 'test:other'
         self._test_set_container_permission(account, 'WRITE')
         status, headers, body = self._test_object_for_s3acl('PUT', account)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_with_fullcontrol_permission(self):
@@ -757,20 +866,20 @@ class TestSwift3Obj(Swift3TestCase):
         self._test_set_container_permission(account, 'FULL_CONTROL')
         status, headers, body = \
             self._test_object_for_s3acl('PUT', account)
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_DELETE_without_permission(self):
         account = 'test:other'
         status, headers, body = self._test_object_for_s3acl('DELETE',
                                                             account)
-        self.assertEquals(self._get_error_code(body), 'AccessDenied')
+        self.assertEqual(self._get_error_code(body), 'AccessDenied')
 
     @s3acl(s3acl_only=True)
     def test_object_DELETE_with_owner_permission(self):
         status, headers, body = self._test_object_for_s3acl('DELETE',
                                                             'test:tester')
-        self.assertEquals(status.split()[0], '204')
+        self.assertEqual(status.split()[0], '204')
 
     @s3acl(s3acl_only=True)
     def test_object_DELETE_with_write_permission(self):
@@ -778,14 +887,14 @@ class TestSwift3Obj(Swift3TestCase):
         self._test_set_container_permission(account, 'WRITE')
         status, headers, body = self._test_object_for_s3acl('DELETE',
                                                             account)
-        self.assertEquals(status.split()[0], '204')
+        self.assertEqual(status.split()[0], '204')
 
     @s3acl(s3acl_only=True)
     def test_object_DELETE_with_fullcontrol_permission(self):
         account = 'test:other'
         self._test_set_container_permission(account, 'FULL_CONTROL')
         status, headers, body = self._test_object_for_s3acl('DELETE', account)
-        self.assertEquals(status.split()[0], '204')
+        self.assertEqual(status.split()[0], '204')
 
     def _test_object_copy_for_s3acl(self, account, src_permission=None,
                                     src_path='/src_bucket/src_obj'):
@@ -812,32 +921,32 @@ class TestSwift3Obj(Swift3TestCase):
     def test_object_PUT_copy_with_owner_permission(self):
         status, headers, body = \
             self._test_object_copy_for_s3acl('test:tester')
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_copy_with_fullcontrol_permission(self):
         status, headers, body = \
             self._test_object_copy_for_s3acl('test:full_control',
                                              'FULL_CONTROL')
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_copy_with_grantee_permission(self):
         status, headers, body = \
             self._test_object_copy_for_s3acl('test:write', 'READ')
-        self.assertEquals(status.split()[0], '200')
+        self.assertEqual(status.split()[0], '200')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_copy_without_src_obj_permission(self):
         status, headers, body = \
             self._test_object_copy_for_s3acl('test:write')
-        self.assertEquals(status.split()[0], '403')
+        self.assertEqual(status.split()[0], '403')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_copy_without_dst_container_permission(self):
         status, headers, body = \
             self._test_object_copy_for_s3acl('test:other', 'READ')
-        self.assertEquals(status.split()[0], '403')
+        self.assertEqual(status.split()[0], '403')
 
     @s3acl(s3acl_only=True)
     def test_object_PUT_copy_empty_src_path(self):
@@ -845,7 +954,20 @@ class TestSwift3Obj(Swift3TestCase):
                             swob.HTTPPreconditionFailed, {}, None)
         status, headers, body = self._test_object_copy_for_s3acl(
             'test:write', 'READ', src_path='')
-        self.assertEquals(status.split()[0], '400')
+        self.assertEqual(status.split()[0], '400')
+
+
+class TestSwift3ObjNonUTC(TestSwift3Obj):
+    def setUp(self):
+        self.orig_tz = os.environ.get('TZ', '')
+        os.environ['TZ'] = 'EST+05EDT,M4.1.0,M10.5.0'
+        time.tzset()
+        super(TestSwift3ObjNonUTC, self).setUp()
+
+    def tearDown(self):
+        super(TestSwift3ObjNonUTC, self).tearDown()
+        os.environ['TZ'] = self.orig_tz
+        time.tzset()
 
 if __name__ == '__main__':
     unittest.main()

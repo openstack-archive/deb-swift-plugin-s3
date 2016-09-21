@@ -28,11 +28,11 @@ strs = [
 class TestSwift3Utils(unittest.TestCase):
     def test_camel_to_snake(self):
         for s1, s2 in strs:
-            self.assertEquals(utils.camel_to_snake(s1), s2)
+            self.assertEqual(utils.camel_to_snake(s1), s2)
 
     def test_snake_to_camel(self):
         for s1, s2 in strs:
-            self.assertEquals(s1, utils.snake_to_camel(s2))
+            self.assertEqual(s1, utils.snake_to_camel(s2))
 
     def test_validate_bucket_name(self):
         # good cases
@@ -87,13 +87,13 @@ class TestSwift3Utils(unittest.TestCase):
         # integer
         ts = utils.S3Timestamp(1)
         self.assertEqual(expected, ts.s3xmlformat)
-        # miliseconds unit should be floored
+        # milliseconds unit should be floored
         ts = utils.S3Timestamp(1.1)
         self.assertEqual(expected, ts.s3xmlformat)
         # float (microseconds) should be floored too
         ts = utils.S3Timestamp(1.000001)
         self.assertEqual(expected, ts.s3xmlformat)
-        # Bigger float (miliseconds) should be floored too
+        # Bigger float (milliseconds) should be floored too
         ts = utils.S3Timestamp(1.9)
         self.assertEqual(expected, ts.s3xmlformat)
 

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import unittest
+import os
 
 from swift3.test.functional.s3_test_client import Connection
 from swift3.test.functional.utils import get_error_code
@@ -28,39 +29,61 @@ class TestSwift3Service(Swift3FunctionalTestCase):
     def test_service(self):
         # GET Service(without bucket)
         status, headers, body = self.conn.make_request('GET')
-        self.assertEquals(status, 200)
+        self.assertEqual(status, 200)
 
         self.assertCommonResponseHeaders(headers)
         self.assertTrue(headers['content-type'] is not None)
         # TODO; requires consideration
-        # self.assertEquasl(headers['transfer-encoding'], 'chunked')
+        # self.assertEqual(headers['transfer-encoding'], 'chunked')
 
         elem = fromstring(body, 'ListAllMyBucketsResult')
         buckets = elem.findall('./Buckets/Bucket')
-        self.assertEquals(list(buckets), [])
+        self.assertEqual(list(buckets), [])
         owner = elem.find('Owner')
-        self.assertEquals(self.conn.user_id, owner.find('ID').text)
-        self.assertEquals(self.conn.user_id, owner.find('DisplayName').text)
+        self.assertEqual(self.conn.user_id, owner.find('ID').text)
+        self.assertEqual(self.conn.user_id, owner.find('DisplayName').text)
 
         # GET Service(with Bucket)
         req_buckets = ('bucket', 'bucket2')
         for bucket in req_buckets:
             self.conn.make_request('PUT', bucket)
         status, headers, body = self.conn.make_request('GET')
-        self.assertEquals(status, 200)
+        self.assertEqual(status, 200)
 
         elem = fromstring(body, 'ListAllMyBucketsResult')
         resp_buckets = elem.findall('./Buckets/Bucket')
-        self.assertEquals(len(list(resp_buckets)), 2)
+        self.assertEqual(len(list(resp_buckets)), 2)
         for b in resp_buckets:
             self.assertTrue(b.find('Name').text in req_buckets)
             self.assertTrue(b.find('CreationDate') is not None)
 
-    def test_service_error(self):
+    def test_service_error_signature_not_match(self):
         auth_error_conn = Connection(aws_secret_key='invalid')
         status, headers, body = auth_error_conn.make_request('GET')
-        self.assertEquals(get_error_code(body), 'SignatureDoesNotMatch')
-        self.assertEquals(headers['content-type'], 'application/xml')
+        self.assertEqual(get_error_code(body), 'SignatureDoesNotMatch')
+        self.assertEqual(headers['content-type'], 'application/xml')
+
+    def test_service_error_no_date_header(self):
+        # Without x-amz-date/Date header, that makes 403 forbidden
+        status, headers, body = self.conn.make_request(
+            'GET', headers={'Date': '', 'x-amz-date': ''})
+        self.assertEqual(status, 403)
+        self.assertEqual(get_error_code(body), 'AccessDenied')
+        self.assertIn('AWS authentication requires a valid Date '
+                      'or x-amz-date header', body)
+
+
+@unittest.skipIf(os.environ['AUTH'] == 'tempauth',
+                 'v4 is supported only in keystone')
+class TestSwift3ServiceSigV4(TestSwift3Service):
+    @classmethod
+    def setUpClass(cls):
+        os.environ['S3_USE_SIGV4'] = "True"
+
+    @classmethod
+    def tearDownClass(cls):
+        del os.environ['S3_USE_SIGV4']
+
 
 if __name__ == '__main__':
     unittest.main()

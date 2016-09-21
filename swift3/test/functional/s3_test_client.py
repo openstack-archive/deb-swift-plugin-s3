@@ -51,6 +51,7 @@ class Connection(object):
             S3Connection(aws_access_key, aws_secret_key, is_secure=False,
                          host=self.host, port=self.port,
                          calling_format=OrdinaryCallingFormat())
+        self.conn.auth_region_name = 'US'
 
     def reset(self):
         """
@@ -96,7 +97,7 @@ class Connection(object):
         :param body: a string of data binary sent to S3 as a request body
         :param query: a string of HTTP query argument
 
-        :returns: a tuple of (int(status_code), headers dict, resposne body)
+        :returns: a tuple of (int(status_code), headers dict, response body)
         """
         response = \
             self.conn.make_request(method, bucket=bucket, key=obj,
@@ -105,6 +106,17 @@ class Connection(object):
                                    override_num_retries=RETRY_COUNT,
                                    retry_handler=None)
         return response.status, dict(response.getheaders()), response.read()
+
+    def generate_url_and_headers(self, method, bucket='', obj='',
+                                 expires_in=3600):
+        url = self.conn.generate_url(expires_in, method, bucket, obj)
+        if os.environ.get('S3_USE_SIGV4') == "True":
+            # V4 signatures are known-broken in boto, but we can work around it
+            if url.startswith('https://'):
+                url = 'http://' + url[8:]
+            return url, {'Host': '%(host)s:%(port)d:%(port)d' % {
+                'host': self.host, 'port': self.port}}
+        return url, {}
 
 
 def get_admin_connection():

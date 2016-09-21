@@ -16,15 +16,16 @@
 import sys
 
 from swift.common.http import HTTP_OK
-from swift.common.utils import json
+from swift.common.utils import json, public
 
 from swift3.controllers.base import Controller
 from swift3.etree import Element, SubElement, tostring, fromstring, \
     XMLSyntaxError, DocumentInvalid
 from swift3.response import HTTPOk, S3NotImplemented, InvalidArgument, \
-    MalformedXML, InvalidLocationConstraint
+    MalformedXML, InvalidLocationConstraint, NoSuchBucket, \
+    BucketNotEmpty, InternalError, ServiceUnavailable, NoSuchKey
 from swift3.cfg import CONF
-from swift3.utils import LOGGER
+from swift3.utils import LOGGER, MULTIUPLOAD_SUFFIX
 
 MAX_PUT_BUCKET_BODY_SIZE = 10240
 
@@ -33,6 +34,52 @@ class BucketController(Controller):
     """
     Handles bucket request.
     """
+    def _delete_segments_bucket(self, req):
+        """
+        Before delete bucket, delete segments bucket if existing.
+        """
+        container = req.container_name + MULTIUPLOAD_SUFFIX
+        marker = ''
+        seg = ''
+
+        try:
+            resp = req.get_response(self.app, 'HEAD')
+            if int(resp.sw_headers['X-Container-Object-Count']) > 0:
+                raise BucketNotEmpty()
+            # FIXME: This extra HEAD saves unexpected segment deletion
+            # but if a complete multipart upload happen while cleanup
+            # segment container below, completed object may be missing its
+            # segments unfortunately. To be safer, it might be good
+            # to handle if the segments can be deleted for each object.
+        except NoSuchBucket:
+            pass
+
+        try:
+            while True:
+                # delete all segments
+                resp = req.get_response(self.app, 'GET', container,
+                                        query={'format': 'json',
+                                               'marker': marker})
+                segments = json.loads(resp.body)
+                for seg in segments:
+                    try:
+                        req.get_response(self.app, 'DELETE', container,
+                                         seg['name'])
+                    except NoSuchKey:
+                        pass
+                    except InternalError:
+                        raise ServiceUnavailable()
+                if segments:
+                    marker = seg['name']
+                else:
+                    break
+            req.get_response(self.app, 'DELETE', container)
+        except NoSuchBucket:
+            return
+        except (BucketNotEmpty, InternalError):
+            raise ServiceUnavailable()
+
+    @public
     def HEAD(self, req):
         """
         Handle HEAD Bucket (Get Metadata) request
@@ -41,6 +88,7 @@ class BucketController(Controller):
 
         return HTTPOk(headers=resp.headers)
 
+    @public
     def GET(self, req):
         """
         Handle GET Bucket (List Objects) request
@@ -122,6 +170,7 @@ class BucketController(Controller):
 
         return HTTPOk(body=body, content_type='application/xml')
 
+    @public
     def PUT(self, req):
         """
         Handle PUT Bucket request
@@ -140,7 +189,7 @@ class BucketController(Controller):
                 raise exc_type, exc_value, exc_traceback
 
             if location != CONF.location:
-                # Swift3 cannot support multiple reagions now.
+                # Swift3 cannot support multiple regions currently.
                 raise InvalidLocationConstraint()
 
         resp = req.get_response(self.app)
@@ -150,12 +199,17 @@ class BucketController(Controller):
 
         return resp
 
+    @public
     def DELETE(self, req):
         """
         Handle DELETE Bucket request
         """
-        return req.get_response(self.app)
+        if CONF.allow_multipart_uploads:
+            self._delete_segments_bucket(req)
+        resp = req.get_response(self.app)
+        return resp
 
+    @public
     def POST(self, req):
         """
         Handle POST Bucket request

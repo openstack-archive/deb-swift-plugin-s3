@@ -20,12 +20,14 @@ import unittest
 from swift.common import swob
 from swift.common.swob import Request, HTTPNoContent
 
+from swift3.utils import mktime
 from swift3.subresource import ACL, User, Owner, Grant, encode_acl
 from swift3.test.unit.test_middleware import Swift3TestCase
 from swift3.cfg import CONF
 from swift3.request import Request as S3_Request
-from swift3.request import S3AclRequest
-from swift3.response import InvalidArgument, NoSuchBucket, InternalError
+from swift3.request import S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT
+from swift3.response import InvalidArgument, NoSuchBucket, InternalError, \
+    AccessDenied, SignatureDoesNotMatch
 
 
 Fake_ACL_MAP = {
@@ -124,8 +126,8 @@ class TestRequest(Swift3TestCase):
     def test_get_response_without_match_ACL_MAP(self):
         with self.assertRaises(Exception) as e:
             self._test_get_response('POST', req_klass=S3AclRequest)
-        self.assertEquals(e.exception.message,
-                          'No permission to be checked exists')
+        self.assertEqual(e.exception.message,
+                         'No permission to be checked exists')
 
     def test_get_response_without_duplication_HEAD_request(self):
         obj = 'object'
@@ -186,11 +188,11 @@ class TestRequest(Swift3TestCase):
         s3req = create_s3request_with_param('max-keys', '1')
 
         # a param in the range
-        self.assertEquals(s3req.get_validated_param('max-keys', 1000, 1000), 1)
-        self.assertEquals(s3req.get_validated_param('max-keys', 0, 1), 1)
+        self.assertEqual(s3req.get_validated_param('max-keys', 1000, 1000), 1)
+        self.assertEqual(s3req.get_validated_param('max-keys', 0, 1), 1)
 
         # a param in the out of the range
-        self.assertEquals(s3req.get_validated_param('max-keys', 0, 0), 0)
+        self.assertEqual(s3req.get_validated_param('max-keys', 0, 0), 0)
 
         # a param in the out of the integer range
         s3req = create_s3request_with_param('max-keys', '1' * 30)
@@ -198,7 +200,7 @@ class TestRequest(Swift3TestCase):
             s3req.get_validated_param('max-keys', 1)
         self.assertTrue(
             'not an integer or within integer range' in result.exception.body)
-        self.assertEquals(
+        self.assertEqual(
             result.exception.headers['content-type'], 'application/xml')
 
         # a param is negative integer
@@ -207,7 +209,7 @@ class TestRequest(Swift3TestCase):
             s3req.get_validated_param('max-keys', 1)
         self.assertTrue(
             'must be an integer between 0 and' in result.exception.body)
-        self.assertEquals(
+        self.assertEqual(
             result.exception.headers['content-type'], 'application/xml')
 
         # a param is not integer
@@ -216,7 +218,7 @@ class TestRequest(Swift3TestCase):
             s3req.get_validated_param('max-keys', 1)
         self.assertTrue(
             'not an integer or within integer range' in result.exception.body)
-        self.assertEquals(
+        self.assertEqual(
             result.exception.headers['content-type'], 'application/xml')
 
     def test_authenticate_delete_Authorization_from_s3req_headers(self):
@@ -232,7 +234,7 @@ class TestRequest(Swift3TestCase):
             s3_req = S3AclRequest(req.environ, MagicMock())
             self.assertTrue('HTTP_AUTHORIZATION' not in s3_req.environ)
             self.assertTrue('Authorization' not in s3_req.headers)
-            self.assertEquals(s3_req.token, 'token')
+            self.assertEqual(s3_req.token, 'token')
 
     def test_to_swift_req_Authorization_not_exist_in_swreq_headers(self):
         container = 'bucket'
@@ -249,9 +251,9 @@ class TestRequest(Swift3TestCase):
             m_swift_resp.return_value = FakeSwiftResponse()
             s3_req = S3AclRequest(req.environ, MagicMock())
             sw_req = s3_req.to_swift_req(method, container, obj)
-            self.assertTrue('HTTP_AUTHORIZATION' not in sw_req.environ)
-            self.assertTrue('Authorization' not in sw_req.headers)
-            self.assertEquals(sw_req.headers['X-Auth-Token'], 'token')
+            self.assertNotIn('HTTP_AUTHORIZATION', sw_req.environ)
+            self.assertNotIn('Authorization', sw_req.headers)
+            self.assertEqual(sw_req.headers['X-Auth-Token'], 'token')
 
     def test_to_swift_req_subrequest_proxy_access_log(self):
         container = 'bucket'
@@ -302,18 +304,18 @@ class TestRequest(Swift3TestCase):
         # first, call get_response('HEAD')
         info = s3_req.get_container_info(self.app)
         self.assertTrue('status' in info)  # sanity
-        self.assertEquals(204, info['status'])  # sanity
-        self.assertEquals('foo', info['read_acl'])  # sanity
-        self.assertEquals('5', info['object_count'])  # sanity
-        self.assertEquals({'foo': 'bar'}, info['meta'])  # sanity
+        self.assertEqual(204, info['status'])  # sanity
+        self.assertEqual('foo', info['read_acl'])  # sanity
+        self.assertEqual('5', info['object_count'])  # sanity
+        self.assertEqual({'foo': 'bar'}, info['meta'])  # sanity
         with patch('swift3.request.get_container_info',
                    return_value={'status': 204}) as mock_info:
             # Then all calls goes to get_container_info
             for x in xrange(10):
                 info = s3_req.get_container_info(self.swift)
                 self.assertTrue('status' in info)  # sanity
-                self.assertEquals(204, info['status'])  # sanity
-            self.assertEquals(10, mock_info.call_count)
+                self.assertEqual(204, info['status'])  # sanity
+            self.assertEqual(10, mock_info.call_count)
 
         expected_errors = [(404, NoSuchBucket), (0, InternalError)]
         for status, expected_error in expected_errors:
@@ -329,8 +331,8 @@ class TestRequest(Swift3TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'Authorization': 'AWS test:tester:hmac'})
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '403')
-        self.assertEquals(body, '')
+        self.assertEqual(status.split()[0], '403')
+        self.assertEqual(body, '')
 
     def test_date_header_expired(self):
         self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
@@ -341,8 +343,8 @@ class TestRequest(Swift3TestCase):
                                      'Date': 'Fri, 01 Apr 2014 12:00:00 GMT'})
 
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '403')
-        self.assertEquals(body, '')
+        self.assertEqual(status.split()[0], '403')
+        self.assertEqual(body, '')
 
     def test_date_header_with_x_amz_date_valid(self):
         self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
@@ -354,8 +356,8 @@ class TestRequest(Swift3TestCase):
                                      'x-amz-date': self.get_date_header()})
 
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '404')
-        self.assertEquals(body, '')
+        self.assertEqual(status.split()[0], '404')
+        self.assertEqual(body, '')
 
     def test_date_header_with_x_amz_date_expired(self):
         self.swift.register('HEAD', '/v1/AUTH_test/nojunk', swob.HTTPNotFound,
@@ -368,8 +370,280 @@ class TestRequest(Swift3TestCase):
                                      'Fri, 01 Apr 2014 12:00:00 GMT'})
 
         status, headers, body = self.call_swift3(req)
-        self.assertEquals(status.split()[0], '403')
-        self.assertEquals(body, '')
+        self.assertEqual(status.split()[0], '403')
+        self.assertEqual(body, '')
+
+    def _test_request_timestamp_sigv4(self, date_header):
+        # signature v4 here
+        environ = {
+            'REQUEST_METHOD': 'GET'}
+
+        if 'X-Amz-Date' in date_header:
+            included_header = 'x-amz-date'
+        elif 'Date' in date_header:
+            included_header = 'date'
+        else:
+            self.fail('Invalid date header specified as test')
+
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20130524/US/s3/aws4_request, '
+                'SignedHeaders=host;%s,'
+                'Signature=X' % included_header,
+            'X-Amz-Content-SHA256': '0123456789'}
+
+        headers.update(date_header)
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ)
+
+        if 'X-Amz-Date' in date_header:
+            timestamp = mktime(
+                date_header['X-Amz-Date'], SIGV4_X_AMZ_DATE_FORMAT)
+        elif 'Date' in date_header:
+            timestamp = mktime(date_header['Date'])
+
+        self.assertEqual(timestamp, int(sigv4_req.timestamp))
+
+    def test_request_timestamp_sigv4(self):
+        access_denied_message = \
+            'AWS authentication requires a valid Date or x-amz-date header'
+
+        # normal X-Amz-Date header
+        date_header = {'X-Amz-Date': self.get_v4_amz_date_header()}
+        self._test_request_timestamp_sigv4(date_header)
+
+        # normal Date header
+        date_header = {'Date': self.get_date_header()}
+        self._test_request_timestamp_sigv4(date_header)
+
+        # mangled X-Amz-Date header
+        date_header = {'X-Amz-Date': self.get_v4_amz_date_header()[:-1]}
+        with self.assertRaises(AccessDenied) as cm:
+            self._test_request_timestamp_sigv4(date_header)
+
+        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertIn(access_denied_message, cm.exception.body)
+
+        # mangled Date header
+        date_header = {'Date': self.get_date_header()[20:]}
+        with self.assertRaises(AccessDenied) as cm:
+            self._test_request_timestamp_sigv4(date_header)
+
+        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertIn(access_denied_message, cm.exception.body)
+
+        # Negative timestamp
+        date_header = {'X-Amz-Date': '00160523T054055Z'}
+        with self.assertRaises(AccessDenied) as cm:
+            self._test_request_timestamp_sigv4(date_header)
+
+        self.assertEqual('403 Forbidden', cm.exception.message)
+
+    def _test_request_timestamp_sigv2(self, date_header):
+        # signature v4 here
+        environ = {
+            'REQUEST_METHOD': 'GET'}
+
+        headers = {'Authorization': 'AWS test:tester:hmac'}
+        headers.update(date_header)
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv2_req = S3_Request(req.environ)
+
+        if 'X-Amz-Date' in date_header:
+            timestamp = mktime(req.headers.get('X-Amz-Date'))
+        elif 'Date' in date_header:
+            timestamp = mktime(req.headers.get('Date'))
+        else:
+            self.fail('Invalid date header specified as test')
+        self.assertEqual(timestamp, int(sigv2_req.timestamp))
+
+    def test_request_timestamp_sigv2(self):
+        access_denied_message = \
+            'AWS authentication requires a valid Date or x-amz-date header'
+
+        # In v2 format, normal X-Amz-Date header is same
+        date_header = {'X-Amz-Date': self.get_date_header()}
+        self._test_request_timestamp_sigv2(date_header)
+
+        # normal Date header
+        date_header = {'Date': self.get_date_header()}
+        self._test_request_timestamp_sigv2(date_header)
+
+        # mangled X-Amz-Date header
+        date_header = {'X-Amz-Date': self.get_date_header()[:-20]}
+        with self.assertRaises(AccessDenied) as cm:
+            self._test_request_timestamp_sigv2(date_header)
+
+        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertIn(access_denied_message, cm.exception.body)
+
+        # mangled Date header
+        date_header = {'Date': self.get_date_header()[:-20]}
+        with self.assertRaises(AccessDenied) as cm:
+            self._test_request_timestamp_sigv2(date_header)
+
+        self.assertEqual('403 Forbidden', cm.exception.message)
+        self.assertIn(access_denied_message, cm.exception.body)
+
+    def test_headers_to_sign_sigv4(self):
+        environ = {
+            'REQUEST_METHOD': 'GET'}
+
+        # host and x-amz-date
+        x_amz_date = self.get_v4_amz_date_header()
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20130524/US/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=X',
+            'X-Amz-Content-SHA256': '0123456789',
+            'Date': self.get_date_header(),
+            'X-Amz-Date': x_amz_date}
+
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ)
+
+        headers_to_sign = sigv4_req._headers_to_sign()
+        self.assertEqual(['host', 'x-amz-content-sha256', 'x-amz-date'],
+                         sorted(headers_to_sign.keys()))
+        self.assertEqual(headers_to_sign['host'], 'localhost:80')
+        self.assertEqual(headers_to_sign['x-amz-date'], x_amz_date)
+        self.assertEqual(headers_to_sign['x-amz-content-sha256'], '0123456789')
+
+        # no x-amz-date
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20130524/US/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256,'
+                'Signature=X',
+            'X-Amz-Content-SHA256': '0123456789',
+            'Date': self.get_date_header()}
+
+        req = Request.blank('/', environ=environ, headers=headers)
+        sigv4_req = SigV4Request(req.environ)
+
+        headers_to_sign = sigv4_req._headers_to_sign()
+        self.assertEqual(['host', 'x-amz-content-sha256'],
+                         sorted(headers_to_sign.keys()))
+        self.assertEqual(headers_to_sign['host'], 'localhost:80')
+        self.assertEqual(headers_to_sign['x-amz-content-sha256'], '0123456789')
+
+        # SignedHeaders says, host and x-amz-date included but there is not
+        # X-Amz-Date header
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20130524/US/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=X',
+            'X-Amz-Content-SHA256': '0123456789',
+            'Date': self.get_date_header()}
+
+        req = Request.blank('/', environ=environ, headers=headers)
+        with self.assertRaises(SignatureDoesNotMatch):
+            sigv4_req = SigV4Request(req.environ)
+            sigv4_req._headers_to_sign()
+
+    def test_canonical_uri_sigv2(self):
+        environ = {
+            'HTTP_HOST': 'bucket1.s3.test.com',
+            'REQUEST_METHOD': 'GET'}
+
+        headers = {'Authorization': 'AWS test:tester:hmac',
+                   'X-Amz-Date': self.get_date_header()}
+
+        # Virtual hosted-style
+        with patch('swift3.cfg.CONF.storage_domain', 's3.test.com'):
+            req = Request.blank('/', environ=environ, headers=headers)
+            sigv2_req = S3_Request(req.environ)
+            uri = sigv2_req._canonical_uri()
+            self.assertEqual(uri, '/bucket1/')
+            self.assertEqual(req.environ['PATH_INFO'], '/')
+
+            req = Request.blank('/obj1', environ=environ, headers=headers)
+            sigv2_req = S3_Request(req.environ)
+            uri = sigv2_req._canonical_uri()
+            self.assertEqual(uri, '/bucket1/obj1')
+            self.assertEqual(req.environ['PATH_INFO'], '/obj1')
+
+        environ = {
+            'HTTP_HOST': 's3.test.com',
+            'REQUEST_METHOD': 'GET'}
+
+        # Path-style
+        with patch('swift3.cfg.CONF.storage_domain', ''):
+            req = Request.blank('/', environ=environ, headers=headers)
+            sigv2_req = S3_Request(req.environ)
+            uri = sigv2_req._canonical_uri()
+
+            self.assertEqual(uri, '/')
+            self.assertEqual(req.environ['PATH_INFO'], '/')
+
+            req = Request.blank('/bucket1/obj1',
+                                environ=environ,
+                                headers=headers)
+            sigv2_req = S3_Request(req.environ)
+            uri = sigv2_req._canonical_uri()
+            self.assertEqual(uri, '/bucket1/obj1')
+            self.assertEqual(req.environ['PATH_INFO'], '/bucket1/obj1')
+
+    def test_canonical_uri_sigv4(self):
+        environ = {
+            'HTTP_HOST': 'bucket.s3.test.com',
+            'REQUEST_METHOD': 'GET'}
+
+        # host and x-amz-date
+        x_amz_date = self.get_v4_amz_date_header()
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20130524/US/s3/aws4_request, '
+                'SignedHeaders=host;x-amz-content-sha256;x-amz-date,'
+                'Signature=X',
+            'X-Amz-Content-SHA256': '0123456789',
+            'Date': self.get_date_header(),
+            'X-Amz-Date': x_amz_date}
+
+        # Virtual hosted-style
+        with patch('swift3.cfg.CONF.storage_domain', 's3.test.com'):
+            req = Request.blank('/', environ=environ, headers=headers)
+            sigv4_req = SigV4Request(req.environ)
+            uri = sigv4_req._canonical_uri()
+
+            self.assertEqual(uri, '/')
+            self.assertEqual(req.environ['PATH_INFO'], '/')
+
+            req = Request.blank('/obj1', environ=environ, headers=headers)
+            sigv4_req = SigV4Request(req.environ)
+            uri = sigv4_req._canonical_uri()
+
+            self.assertEqual(uri, '/obj1')
+            self.assertEqual(req.environ['PATH_INFO'], '/obj1')
+
+        environ = {
+            'HTTP_HOST': 's3.test.com',
+            'REQUEST_METHOD': 'GET'}
+
+        # Path-style
+        with patch('swift3.cfg.CONF.storage_domain', ''):
+            req = Request.blank('/', environ=environ, headers=headers)
+            sigv4_req = SigV4Request(req.environ)
+            uri = sigv4_req._canonical_uri()
+
+            self.assertEqual(uri, '/')
+            self.assertEqual(req.environ['PATH_INFO'], '/')
+
+            req = Request.blank('/bucket/obj1',
+                                environ=environ,
+                                headers=headers)
+            sigv4_req = SigV4Request(req.environ)
+            uri = sigv4_req._canonical_uri()
+
+            self.assertEqual(uri, '/bucket/obj1')
+            self.assertEqual(req.environ['PATH_INFO'], '/bucket/obj1')
 
 if __name__ == '__main__':
     unittest.main()

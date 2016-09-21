@@ -46,8 +46,11 @@ import os
 import re
 import sys
 
-from swift.common.utils import json
+from swift.common.swob import Range
+from swift.common.utils import json, public
 from swift.common.db import utf8encode
+
+from six.moves.urllib.parse import urlparse  # pylint: disable=F0401
 
 from swift3.controllers.base import Controller, bucket_operation, \
     object_operation, check_container_existence
@@ -92,6 +95,7 @@ class PartController(Controller):
 
     Those APIs are logged as PART operations in the S3 server log.
     """
+    @public
     @object_operation
     @check_container_existence
     def PUT(self, req):
@@ -122,7 +126,33 @@ class PartController(Controller):
 
         req_timestamp = S3Timestamp.now()
         req.headers['X-Timestamp'] = req_timestamp.internal
-        req.check_copy_source(self.app)
+        source_resp = req.check_copy_source(self.app)
+        if 'X-Amz-Copy-Source' in req.headers and \
+                'X-Amz-Copy-Source-Range' in req.headers:
+            rng = req.headers['X-Amz-Copy-Source-Range']
+
+            header_valid = True
+            try:
+                rng_obj = Range(rng)
+                if len(rng_obj.ranges) != 1:
+                    header_valid = False
+            except ValueError:
+                header_valid = False
+            if not header_valid:
+                err_msg = ('The x-amz-copy-source-range value must be of the '
+                           'form bytes=first-last where first and last are '
+                           'the zero-based offsets of the first and last '
+                           'bytes to copy')
+                raise InvalidArgument('x-amz-source-range', rng, err_msg)
+
+            source_size = int(source_resp.headers['Content-Length'])
+            if not rng_obj.ranges_for_length(source_size):
+                err_msg = ('Range specified is not valid for source object '
+                           'of size: %s' % source_size)
+                raise InvalidArgument('x-amz-source-range', rng, err_msg)
+
+            req.headers['Range'] = rng
+            del req.headers['X-Amz-Copy-Source-Range']
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
@@ -142,6 +172,7 @@ class UploadsController(Controller):
 
     Those APIs are logged as UPLOADS operations in the S3 server log.
     """
+    @public
     @bucket_operation(err_resp=InvalidRequest,
                       err_msg="Key is not expected for the GET method "
                               "?uploads subresource")
@@ -224,7 +255,7 @@ class UploadsController(Controller):
             return obj_dict
 
         # uploads is a list consists of dict, {key, upload_id, last_modified}
-        # Note that pattern matcher willd drop whole segments objects like as
+        # Note that pattern matcher will drop whole segments objects like as
         # object_name/upload_id/1.
         pattern = re.compile('/[0-9]+$')
         uploads = [object_to_upload(obj) for obj in objects if
@@ -290,6 +321,7 @@ class UploadsController(Controller):
 
         return HTTPOk(body=body, content_type='application/xml')
 
+    @public
     @object_operation
     @check_container_existence
     def POST(self, req):
@@ -330,6 +362,7 @@ class UploadController(Controller):
 
     Those APIs are logged as UPLOAD operations in the S3 server log.
     """
+    @public
     @object_operation
     @check_container_existence
     def GET(self, req):
@@ -424,6 +457,7 @@ class UploadController(Controller):
 
         return HTTPOk(body=body, content_type='application/xml')
 
+    @public
     @object_operation
     @check_container_existence
     def DELETE(self, req):
@@ -460,6 +494,7 @@ class UploadController(Controller):
 
         return HTTPNoContent()
 
+    @public
     @object_operation
     @check_container_existence
     def POST(self, req):
@@ -524,15 +559,41 @@ class UploadController(Controller):
             LOGGER.error(e)
             raise exc_type, exc_value, exc_traceback
 
+        # Following swift commit 7f636a5, zero-byte segments aren't allowed,
+        # even as the final segment
+        if int(info['size_bytes']) == 0:
+            manifest.pop()
+
+            # Ordinarily, we just let SLO check segment sizes. However, we
+            # just popped off a zero-byte segment; if there was a second
+            # zero-byte segment and it was at the end, it would succeed on
+            # Swift < 2.6.0 and fail on newer Swift. It seems reasonable that
+            # it should always fail.
+            if manifest and int(manifest[-1]['size_bytes']) == 0:
+                raise EntityTooSmall()
+
         try:
             # TODO: add support for versioning
-            resp = req.get_response(self.app, 'PUT', body=json.dumps(manifest),
-                                    query={'multipart-manifest': 'put'},
-                                    headers=headers)
+            if manifest:
+                resp = req.get_response(self.app, 'PUT',
+                                        body=json.dumps(manifest),
+                                        query={'multipart-manifest': 'put'},
+                                        headers=headers)
+            else:
+                # the upload must have consisted of a single zero-length part
+                # just write it directly
+                resp = req.get_response(self.app, 'PUT', body='',
+                                        headers=headers)
         except BadSwiftRequest as e:
             msg = str(e)
-            if msg.startswith('Each segment, except the last, '
-                              'must be at least '):
+            msg_pre_260 = 'Each segment, except the last, must be at least '
+            # see https://github.com/openstack/swift/commit/c0866ce
+            msg_260 = ('too small; each segment, except the last, must be '
+                       'at least ')
+            # see https://github.com/openstack/swift/commit/7f636a5
+            msg_post_260 = 'too small; each segment must be at least 1 byte'
+            if msg.startswith(msg_pre_260) or \
+                    msg_260 in msg or msg_post_260 in msg:
                 # FIXME: AWS S3 allows a smaller object than 5 MB if there is
                 # only one part.  Use a COPY request to copy the part object
                 # from the segments container instead.
@@ -540,11 +601,31 @@ class UploadController(Controller):
             else:
                 raise
 
+        if int(info['size_bytes']) == 0:
+            # clean up the zero-byte segment
+            empty_seg_cont, empty_seg_name = info['path'].split('/', 2)[1:]
+            req.get_response(self.app, 'DELETE',
+                             container=empty_seg_cont, obj=empty_seg_name)
+
+        # clean up the multipart-upload record
         obj = '%s/%s' % (req.object_name, upload_id)
         req.get_response(self.app, 'DELETE', container, obj)
 
         result_elem = Element('CompleteMultipartUploadResult')
-        SubElement(result_elem, 'Location').text = req.host_url + req.path
+
+        # NOTE: boto with sig v4 appends port to HTTP_HOST value at the
+        # request header when the port is non default value and it makes
+        # req.host_url like as http://localhost:8080:8080/path
+        # that obviously invalid. Probably it should be resolved at
+        # swift.common.swob though, tentatively we are parsing and
+        # reconstructing the correct host_url info here.
+        # in detail, https://github.com/boto/boto/pull/3513
+        parsed_url = urlparse(req.host_url)
+        host_url = '%s://%s' % (parsed_url.scheme, parsed_url.hostname)
+        if parsed_url.port:
+            host_url += ':%s' % parsed_url.port
+
+        SubElement(result_elem, 'Location').text = host_url + req.path
         SubElement(result_elem, 'Bucket').text = req.container_name
         SubElement(result_elem, 'Key').text = req.object_name
         SubElement(result_elem, 'ETag').text = resp.etag

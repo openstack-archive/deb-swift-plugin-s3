@@ -37,8 +37,8 @@ use = egg:swift3#swift3
 # allow_no_owner = false
 #
 # Set a region name of your Swift cluster.  Note that Swift3 doesn't choose a
-# region of the newly created bucket actually.  This value is used only for the
-# GET Bucket location API.
+# region of the newly created bucket actually.  This value is used for the
+# GET Bucket location API and v4 signatures calculation.
 # location = US
 #
 # Set whether to enforce DNS-compliant bucket names. Note that S3 enforces
@@ -141,22 +141,23 @@ use = egg:swift#memcache
 
 [filter:s3token]
 # See swift manual for more details.
-paste.filter_factory = keystonemiddleware.s3_token:filter_factory
-auth_host = keystonehost
-auth_port = 35357
-auth_protocol = http
-auth_uri = http://keystonehost:5000/
-admin_tenant_name = service
-admin_user = swift
-admin_password = password
-cache = swift.cache
+use = egg:swift3#s3token
+
+# Prefix that will be prepended to the tenant to form the account
+reseller_prefix = AUTH_
+
+# Keystone server details
+auth_uri = http://keystonehost:35357/
+
+# SSL-related options
+#insecure = False
+#certfile =
+#keyfile =
 
 [filter:authtoken]
 # See swift manual for more details.
 paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-auth_host = keystonehost
-auth_port = 35357
-auth_protocol = http
+identity_uri = http://keystonehost:35357/
 auth_uri = http://keystonehost:5000/
 admin_tenant_name = service
 admin_user = swift

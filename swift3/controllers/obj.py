@@ -17,10 +17,12 @@ import sys
 
 from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT
 from swift.common.swob import Range, content_range_header_value
+from swift.common.utils import public
 
 from swift3.utils import S3Timestamp
 from swift3.controllers.base import Controller
-from swift3.response import S3NotImplemented, InvalidRange, NoSuchKey
+from swift3.response import S3NotImplemented, InvalidRange, NoSuchKey, \
+    InvalidArgument
 
 
 class ObjectController(Controller):
@@ -30,7 +32,7 @@ class ObjectController(Controller):
     def _gen_head_range_resp(self, req_range, resp):
         """
         Swift doesn't handle Range header for HEAD requests.
-        So, this mothod generates HEAD range response from HEAD response.
+        So, this method generates HEAD range response from HEAD response.
         S3 return HEAD range response, if the value of range satisfies the
         conditions which are described in the following document.
         - http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.35
@@ -74,6 +76,7 @@ class ObjectController(Controller):
 
         return resp
 
+    @public
     def HEAD(self, req):
         """
         Handle HEAD Object request
@@ -86,12 +89,14 @@ class ObjectController(Controller):
 
         return resp
 
+    @public
     def GET(self, req):
         """
         Handle GET Object request
         """
         return self.GETorHEAD(req)
 
+    @public
     def PUT(self, req):
         """
         Handle PUT Object and PUT Object (Copy) request
@@ -99,6 +104,11 @@ class ObjectController(Controller):
         # set X-Timestamp by swift3 to use at copy resp body
         req_timestamp = S3Timestamp.now()
         req.headers['X-Timestamp'] = req_timestamp.internal
+        if all(h in req.headers
+               for h in ('X-Amz-Copy-Source', 'X-Amz-Copy-Source-Range')):
+            raise InvalidArgument('x-amz-copy-source-range',
+                                  req.headers['X-Amz-Copy-Source-Range'],
+                                  'Illegal copy header')
         req.check_copy_source(self.app)
         resp = req.get_response(self.app)
 
@@ -114,9 +124,11 @@ class ObjectController(Controller):
         resp.status = HTTP_OK
         return resp
 
+    @public
     def POST(self, req):
         raise S3NotImplemented()
 
+    @public
     def DELETE(self, req):
         """
         Handle DELETE Object request

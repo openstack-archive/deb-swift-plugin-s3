@@ -56,8 +56,9 @@ from paste.deploy import loadwsgi
 
 from swift.common.wsgi import PipelineWrapper, loadcontext
 
+from swift3 import __version__ as swift3_version
 from swift3.exception import NotS3Request
-from swift3.request import Request, S3AclRequest
+from swift3.request import get_request_class
 from swift3.response import ErrorResponse, InternalError, MethodNotAllowed, \
     ResponseBase
 from swift3.cfg import CONF
@@ -66,7 +67,7 @@ from swift.common.utils import get_logger, register_swift_info
 
 
 class Swift3Middleware(object):
-    """Swift3 S3 compatibility midleware"""
+    """Swift3 S3 compatibility middleware"""
     def __init__(self, app, conf, *args, **kwargs):
         self.app = app
         self.slo_enabled = conf['allow_multipart_uploads']
@@ -74,10 +75,8 @@ class Swift3Middleware(object):
 
     def __call__(self, env, start_response):
         try:
-            if CONF.s3_acl:
-                req = S3AclRequest(env, self.app, self.slo_enabled)
-            else:
-                req = Request(env, self.slo_enabled)
+            req_class = get_request_class(env)
+            req = req_class(env, self.app, self.slo_enabled)
             resp = self.handle_request(req)
         except NotS3Request:
             resp = self.app
@@ -101,7 +100,11 @@ class Swift3Middleware(object):
 
         controller = req.controller(self.app)
         if hasattr(controller, req.method):
-            res = getattr(controller, req.method)(req)
+            handler = getattr(controller, req.method)
+            if not getattr(handler, 'publicly_accessible', False):
+                raise MethodNotAllowed(req.method,
+                                       req.controller.resource_type())
+            res = handler(req)
         else:
             raise MethodNotAllowed(req.method,
                                    req.controller.resource_type())
@@ -129,7 +132,7 @@ class Swift3Middleware(object):
             self.slo_enabled = False
             LOGGER.warning('swift3 middleware requires SLO middleware '
                            'to support multi-part upload, please add it '
-                           'in pipline')
+                           'in pipeline')
 
         if not conf.auth_pipeline_check:
             LOGGER.debug('Skip pipeline auth check.')
@@ -188,6 +191,7 @@ def filter_factory(global_conf, **local_conf):
         max_upload_part_num=CONF['max_upload_part_num'],
         max_multi_delete_objects=CONF['max_multi_delete_objects'],
         allow_multipart_uploads=CONF['allow_multipart_uploads'],
+        version=swift3_version,
     )
 
     def swift3_filter(app):

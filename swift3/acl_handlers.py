@@ -116,7 +116,7 @@ class BaseAclHandler(object):
         """
         General acl handling method.
         This method expects to call Request._get_response() in outside of
-        this method so that this method returns resonse only when sw_method
+        this method so that this method returns response only when sw_method
         is HEAD.
         """
 
@@ -157,6 +157,28 @@ class BucketAclHandler(BaseAclHandler):
     """
     BucketAclHandler: Handler for BucketController
     """
+    def DELETE(self, app):
+        if self.container.endswith(MULTIUPLOAD_SUFFIX):
+            # anyways, delete multiupload container doesn't need acls
+            # because it depends on GET segment container result for
+            # cleanup
+            pass
+        else:
+            return self._handle_acl(app, 'DELETE')
+
+    def HEAD(self, app):
+        if self.method == 'DELETE':
+            return self._handle_acl(app, 'DELETE')
+        else:
+            return self._handle_acl(app, 'HEAD')
+
+    def GET(self, app):
+        if self.method == 'DELETE' and \
+                self.container.endswith(MULTIUPLOAD_SUFFIX):
+            pass
+        else:
+            return self._handle_acl(app, 'GET')
+
     def PUT(self, app):
         req_acl = ACL.from_headers(self.req.headers,
                                    Owner(self.user_id, self.user_id))
@@ -256,7 +278,7 @@ class MultiUploadAclHandler(BaseAclHandler):
     """
     MultiUpload stuff requires acl checking just once for BASE container
     so that MultiUploadAclHandler extends BaseAclHandler to check acl only
-    when the verb defined. We should define tThe verb as the first step to
+    when the verb defined. We should define the verb as the first step to
     request to backend Swift at incoming request.
 
     Basic Rules:
