@@ -1,11 +1,11 @@
-swift-plugin-s3 (1.11-1) UNRELEASED; urgency=medium
+swift-plugin-s3 (1.11-1) experimental; urgency=medium
 
   * New upstream release
   * Removed d/p/lower_expire_timestamp_in_test_fix_32_arch.patch
     (Applied upstream)
   * Rearranged build depends for new upstream release
 
- -- Ondřej Nový <onovy@debian.org>  Wed, 21 Sep 2016 20:31:39 +0200
+ -- Ondřej Nový <onovy@debian.org>  Wed, 21 Sep 2016 20:43:34 +0200
 
 swift-plugin-s3 (1.10-3) unstable; urgency=medium
 
