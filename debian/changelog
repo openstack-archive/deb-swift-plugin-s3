@@ -1,3 +1,9 @@
+swift-plugin-s3 (1.11-1) UNRELEASED; urgency=medium
+
+  * New upstream release
+
+ -- Ondřej Nový <onovy@debian.org>  Wed, 21 Sep 2016 20:31:39 +0200
+
 swift-plugin-s3 (1.10-3) unstable; urgency=medium
 
   * Standards-Version is 3.9.8 now (no change)
