@@ -1,4 +1,5 @@
 [gerrit]
 host=review.openstack.org
 port=29418
-project=openstack/swift3.git
+project=openstack/deb-swift-plugin-s3.git
+defaultbranch=debian/newton
