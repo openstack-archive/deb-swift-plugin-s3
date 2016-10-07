@@ -1,9 +1,10 @@
-swift-plugin-s3 (1.11-2) UNRELEASED; urgency=medium
+swift-plugin-s3 (1.11-2) unstable; urgency=medium
 
+  * Uploading to unstable
   * d/s/options: extend-diff-ignore of .gitreview
   * d/control: Using OpenStack's Gerrit as VCS URLs.
 
- -- Ondřej Nový <onovy@debian.org>  Thu, 29 Sep 2016 13:52:21 +0200
+ -- Ondřej Nový <onovy@debian.org>  Fri, 07 Oct 2016 11:08:58 +0200
 
 swift-plugin-s3 (1.11-1) experimental; urgency=medium
 
