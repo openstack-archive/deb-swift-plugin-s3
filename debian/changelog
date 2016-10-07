@@ -1,3 +1,9 @@
+swift-plugin-s3 (1.11-3) UNRELEASED; urgency=medium
+
+  * d/gbp.conf: debian-branch=debian/newton
+
+ -- Ondřej Nový <onovy@debian.org>  Fri, 07 Oct 2016 21:22:43 +0200
+
 swift-plugin-s3 (1.11-2) unstable; urgency=medium
 
   * Uploading to unstable
