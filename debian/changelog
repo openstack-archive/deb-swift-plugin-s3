@@ -1,6 +1,7 @@
 swift-plugin-s3 (1.11-3) UNRELEASED; urgency=medium
 
   * d/gbp.conf: debian-branch=debian/newton
+  * Bumped debhelper version to 10
 
  -- Ondřej Nový <onovy@debian.org>  Fri, 07 Oct 2016 21:22:43 +0200
 
